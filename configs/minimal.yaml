@@ -1,0 +1,50 @@
+seed: 42
+out_dir: runs/v2_minimal
+datasets:
+  - name: oulad
+    raw_path: data/raw/oulad
+    processed_path: data/processed/oulad
+    params:
+      min_vle_clicks_clip: 0.0
+
+synthesizers:
+  - name: gaussian_copula
+    params: {}
+
+split:
+  test_size: 0.3
+  random_state: 42
+  stratify_col: null
+
+utility_tasks:
+  - name: classification
+    target_col: dropout
+    id_cols:
+      - code_module
+      - code_presentation
+      - id_student
+    feature_drop_cols:
+      - final_grade
+    models:
+      - logreg
+    params:
+      datasets:
+        - oulad
+
+evaluation:
+  sdmetrics: {}
+  c2st:
+    classifier: rf
+    sample_size: 1000
+    test_size: 0.3
+    seeds:
+      - 0
+  mia:
+    attackers:
+      - logreg
+    test_size: 0.3
+    k: 3
+  bootstrap:
+    n_boot: 50
+  permutation_test:
+    n_perm: 50

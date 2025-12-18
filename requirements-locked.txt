@@ -1,0 +1,16 @@
+pandas==2.2.2
+numpy==1.26.1
+scikit-learn==1.3.2
+pyyaml==6.0
+pyarrow==12.0.1
+matplotlib==3.7.2
+
+# Synthesizers
+sdv==1.3.0
+sdmetrics==0.14.1
+
+# Diffusion (TabDDPM via Synthcity)
+synthcity==0.2.11
+
+# Optional (for attacker / C2ST with XGBoost)
+xgboost==2.0.1
