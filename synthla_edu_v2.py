@@ -408,87 +408,87 @@ def sdmetrics_quality(real: pd.DataFrame, syn: pd.DataFrame) -> Dict[str, Any]:
     return out
 
 
-def c2st_effective_auc(real: pd.DataFrame, syn: pd.DataFrame, *, test_size: float = 0.3, seeds: List[int] = [0, 1, 2, 3, 4]) -> Dict[str, Any]:
-    n = min(len(real), len(syn))
-    real_s = real.sample(n=n, random_state=seeds[0]).reset_index(drop=True)
-    syn_s = syn.sample(n=n, random_state=seeds[0]).reset_index(drop=True)
+def c2st_effective_auc(real: pd.DataFrame, synthetic: pd.DataFrame, *, test_size: float = 0.3, seeds: List[int] = [0, 1, 2, 3, 4]) -> Dict[str, Any]:
+    n = min(len(real), len(synthetic))
+    real_sample = real.sample(n=n, random_state=seeds[0]).reset_index(drop=True)
+    synthetic_sample = synthetic.sample(n=n, random_state=seeds[0]).reset_index(drop=True)
 
-    X = pd.concat([real_s, syn_s], ignore_index=True)
-    y = np.concatenate([np.ones(len(real_s)), np.zeros(len(syn_s))])
+    X = pd.concat([real_sample, synthetic_sample], ignore_index=True)
+    y = np.concatenate([np.ones(len(real_sample)), np.zeros(len(synthetic_sample))])
 
     spec = infer_feature_spec(X)
-    pre = make_preprocess_pipeline(spec)
+    preprocessor = make_preprocess_pipeline(spec)
 
-    aucs = []
-    effs = []
-    for s in seeds:
+    auc_scores = []
+    effective_auc_scores = []
+    for seed in seeds:
         try:
-            X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=s, stratify=y)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=seed, stratify=y)
         except ValueError:
-            X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=s)
-        clf = RandomForestClassifier(n_estimators=300, random_state=s, n_jobs=-1)
-        pipe = Pipeline([("pre", pre), ("clf", clf)])
-        pipe.fit(X_tr, y_tr)
-        proba = pipe.predict_proba(X_te)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=seed)
+        classifier = RandomForestClassifier(n_estimators=300, random_state=seed, n_jobs=-1)
+        pipe = Pipeline([("preprocessor", preprocessor), ("classifier", classifier)])
+        pipe.fit(X_train, y_train)
+        proba = pipe.predict_proba(X_test)
         y_prob = proba[:, 1] if proba.shape[1] > 1 else (1.0 - proba[:, 0])
-        auc = roc_auc_score(y_te, y_prob)
-        eff = max(auc, 1.0 - auc)
-        aucs.append(float(auc))
-        effs.append(float(eff))
+        auc = roc_auc_score(y_test, y_prob)
+        effective_auc = max(auc, 1.0 - auc)
+        auc_scores.append(float(auc))
+        effective_auc_scores.append(float(effective_auc))
     return {
-        "auc_mean": float(np.mean(aucs)),
-        "auc_std": float(np.std(aucs, ddof=1)) if len(aucs) > 1 else 0.0,
-        "effective_auc_mean": float(np.mean(effs)),
-        "effective_auc_std": float(np.std(effs, ddof=1)) if len(effs) > 1 else 0.0,
+        "auc_mean": float(np.mean(auc_scores)),
+        "auc_std": float(np.std(auc_scores, ddof=1)) if len(auc_scores) > 1 else 0.0,
+        "effective_auc_mean": float(np.mean(effective_auc_scores)),
+        "effective_auc_std": float(np.std(effective_auc_scores, ddof=1)) if len(effective_auc_scores) > 1 else 0.0,
         "seeds": seeds,
-        "classifier": "rf",
+        "classifier": "random_forest",
         "n_per_class": int(n),
     }
 
 
-def mia_worst_case_effective_auc(real_train: pd.DataFrame, real_holdout: pd.DataFrame, syn: pd.DataFrame, *, exclude_cols: Optional[List[str]] = None, test_size: float = 0.3, random_state: int = 0, k: int = 5) -> Dict[str, Any]:
+def mia_worst_case_effective_auc(real_train: pd.DataFrame, real_holdout: pd.DataFrame, synthetic: pd.DataFrame, *, exclude_cols: Optional[List[str]] = None, test_size: float = 0.3, random_state: int = 0, k: int = 5) -> Dict[str, Any]:
     n = min(len(real_train), len(real_holdout))
     members = real_train.sample(n=n, random_state=random_state).reset_index(drop=True)
     nonmembers = real_holdout.sample(n=n, random_state=random_state).reset_index(drop=True)
 
     exclude = exclude_cols or []
-    X_syn = syn.drop(columns=[c for c in exclude if c in syn.columns])
-    X_mem = members.drop(columns=[c for c in exclude if c in members.columns])
-    X_non = nonmembers.drop(columns=[c for c in exclude if c in nonmembers.columns])
+    X_synthetic = synthetic.drop(columns=[c for c in exclude if c in synthetic.columns])
+    X_members = members.drop(columns=[c for c in exclude if c in members.columns])
+    X_nonmembers = nonmembers.drop(columns=[c for c in exclude if c in nonmembers.columns])
 
-    spec = infer_feature_spec(X_syn)
-    pre = make_preprocess_pipeline(spec)
+    spec = infer_feature_spec(X_synthetic)
+    preprocessor = make_preprocess_pipeline(spec)
 
-    Z_syn = pre.fit_transform(X_syn)
-    Z_mem = pre.transform(X_mem)
-    Z_non = pre.transform(X_non)
+    Z_synthetic = preprocessor.fit_transform(X_synthetic)
+    Z_members = preprocessor.transform(X_members)
+    Z_nonmembers = preprocessor.transform(X_nonmembers)
 
-    nn = NearestNeighbors(n_neighbors=min(k, Z_syn.shape[0]), metric="euclidean", n_jobs=-1)
-    nn.fit(Z_syn)
-    d_mem, _ = nn.kneighbors(Z_mem, return_distance=True)
-    d_non, _ = nn.kneighbors(Z_non, return_distance=True)
+    knn = NearestNeighbors(n_neighbors=min(k, Z_synthetic.shape[0]), metric="euclidean", n_jobs=-1)
+    knn.fit(Z_synthetic)
+    distances_members, _ = knn.kneighbors(Z_members, return_distance=True)
+    distances_nonmembers, _ = knn.kneighbors(Z_nonmembers, return_distance=True)
 
     X = pd.DataFrame({
-        "d_min": np.concatenate([d_mem[:, 0], d_non[:, 0]]),
-        "d_mean_k": np.concatenate([d_mem.mean(axis=1), d_non.mean(axis=1)]),
+        "d_min": np.concatenate([distances_members[:, 0], distances_nonmembers[:, 0]]),
+        "d_mean_k": np.concatenate([distances_members.mean(axis=1), distances_nonmembers.mean(axis=1)]),
     })
-    y = np.concatenate([np.ones(len(Z_mem)), np.zeros(len(Z_non))])
+    y = np.concatenate([np.ones(len(Z_members)), np.zeros(len(Z_nonmembers))])
 
     try:
-        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
     except ValueError:
-        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=random_state)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
 
-    clf = RandomForestClassifier(n_estimators=300, random_state=random_state, n_jobs=-1)
-    clf.fit(X_tr, y_tr)
-    y_prob = clf.predict_proba(X_te)[:, 1]
-    auc = roc_auc_score(y_te, y_prob)
-    eff = max(auc, 1.0 - auc)
+    classifier = RandomForestClassifier(n_estimators=300, random_state=random_state, n_jobs=-1)
+    classifier.fit(X_train, y_train)
+    y_prob = classifier.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_prob)
+    effective_auc = max(auc, 1.0 - auc)
     return {
-        "worst_case_effective_auc": float(eff),
-        "attacker": "rf",
+        "worst_case_effective_auc": float(effective_auc),
+        "attacker": "random_forest",
         "n_members": int(n),
-        "k": int(k),
+        "knn_neighbors": int(k),
     }
 
 
@@ -536,28 +536,28 @@ def run_single(
     train_df.to_parquet(ds_out / "real_train.parquet", index=False)
     test_df.to_parquet(ds_out / "real_test.parquet", index=False)
 
-    synth = GaussianCopulaSynth()
-    synth.fit(train_df)
-    syn = synth.sample(len(train_df))
-    syn_path = ds_out / f"synthetic_train__gaussian_copula.parquet"
-    syn.to_parquet(syn_path, index=False)
+    synthesizer = GaussianCopulaSynth()
+    synthesizer.fit(train_df)
+    synthetic_data = synthesizer.sample(len(train_df))
+    synthetic_path = ds_out / f"synthetic_train__gaussian_copula.parquet"
+    synthetic_data.to_parquet(synthetic_path, index=False)
 
     # Optionally aggregate ASSISTments to student-level for utility-like evaluation
     test_eval = test_df
-    syn_eval = syn
+    synthetic_eval = synthetic_data
     if aggregate_assistments and dataset.lower() == "assistments":
         test_eval = aggregate_assistments_student_level(test_eval)
-        syn_eval = aggregate_assistments_student_level(syn_eval)
+        synthetic_eval = aggregate_assistments_student_level(synthetic_eval)
 
-    q = sdmetrics_quality(test_eval, syn_eval)
-    write_json(ds_out / "sdmetrics__gaussian_copula.json", q)
+    quality_metrics = sdmetrics_quality(test_eval, synthetic_eval)
+    write_json(ds_out / "sdmetrics__gaussian_copula.json", quality_metrics)
 
-    c2 = c2st_effective_auc(test_eval, syn_eval, test_size=0.3, seeds=[0, 1, 2, 3, 4])
-    write_json(ds_out / "c2st__gaussian_copula.json", c2)
+    realism_metrics = c2st_effective_auc(test_eval, synthetic_eval, test_size=0.3, seeds=[0, 1, 2, 3, 4])
+    write_json(ds_out / "c2st__gaussian_copula.json", realism_metrics)
 
     exclude_cols = schema.get("id_cols", [])
-    mia = mia_worst_case_effective_auc(train_df, test_df, syn, exclude_cols=exclude_cols, test_size=0.3, random_state=seed, k=5)
-    write_json(ds_out / "mia__gaussian_copula.json", mia)
+    privacy_metrics = mia_worst_case_effective_auc(train_df, test_df, synthetic_data, exclude_cols=exclude_cols, test_size=0.3, random_state=seed, k=5)
+    write_json(ds_out / "mia__gaussian_copula.json", privacy_metrics)
 
     return out_path
 

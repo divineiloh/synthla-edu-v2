@@ -42,16 +42,16 @@ Download datasets and place in `data/raw/`:
 
 ```bash
 # OULAD
-python synthla_edu.py \
+python synthla_edu_v2.py \
   --dataset oulad \
   --raw-dir data/raw/oulad \
-  --out-dir runs/oulad
+  --out-dir runs/oulad_runs
 
 # ASSISTments (with student-level aggregation for evaluation)
-python synthla_edu.py \
+python synthla_edu_v2.py \
   --dataset assistments \
   --raw-dir data/raw/assistments \
-  --out-dir runs/assistments \
+  --out-dir runs/assistments_runs \
   --aggregate-assistments
 ```
 
@@ -59,21 +59,21 @@ python synthla_edu.py \
 
 **Windows:**
 ```powershell
-Get-Content runs/oulad/oulad/sdmetrics__gaussian_copula.json
-Get-Content runs/oulad/oulad/c2st__gaussian_copula.json
-Get-Content runs/oulad/oulad/mia__gaussian_copula.json
+Get-Content runs/oulad_runs/oulad/sdmetrics__gaussian_copula.json
+Get-Content runs/oulad_runs/oulad/c2st__gaussian_copula.json
+Get-Content runs/oulad_runs/oulad/mia__gaussian_copula.json
 ```
 
 **Linux/Mac:**
 ```bash
-cat runs/oulad/oulad/sdmetrics__gaussian_copula.json
-cat runs/oulad/oulad/c2st__gaussian_copula.json
-cat runs/oulad/oulad/mia__gaussian_copula.json
+cat runs/oulad_runs/oulad/sdmetrics__gaussian_copula.json
+cat runs/oulad_runs/oulad/c2st__gaussian_copula.json
+cat runs/oulad_runs/oulad/mia__gaussian_copula.json
 ```
 
 ## Outputs
 
-Each run produces under `runs/<dataset>/<dataset>/`:
+Each run produces under `runs/<dataset>_runs/<dataset>/`:
 
 - `real_full.parquet` — Complete real dataset
 - `real_train.parquet` — Training split
