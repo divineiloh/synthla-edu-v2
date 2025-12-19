@@ -97,6 +97,32 @@ Results saved to `runs/v2_quick/` with:
 ```bash
 cat runs/v2_quick/run.log                    # Execution log
 head runs/v2_quick/results.csv               # Compiled metrics
+### Single-File Runner (KISS)
+
+For a minimal, one-file pipeline, use `synthla_edu.py`:
+
+```bash
+python synthla_edu.py \
+  --dataset oulad \
+  --raw-dir src/synthla_edu_v2/data/raw/oulad \
+  --out-dir runs/kiss_oulad
+
+# Or ASSISTments (optionally aggregate to student-level for evaluation)
+python synthla_edu.py \
+  --dataset assistments \
+  --raw-dir src/synthla_edu_v2/data/raw/assistments \
+  --out-dir runs/kiss_assistments \
+  --aggregate-assistments
+```
+
+This single-file runner performs:
+- Gaussian Copula synthesis on the training split
+- SDMetrics quality scoring
+- C2ST realism (RF-based effective AUC)
+- MIA privacy (distance-to-synthetic, RF attacker)
+
+Outputs are written under `runs/kiss_*/*` as parquet/JSON files.
+
 ```
 
 ## Documentation
