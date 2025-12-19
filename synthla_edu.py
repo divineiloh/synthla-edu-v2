@@ -118,12 +118,17 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
 
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
-    missing = [c for c in DEFAULT_ASSIST_KEEP_COLS if c not in df.columns]
-    if missing:
-        raise ValueError(f"ASSISTments missing expected columns: {missing}")
+    # Minimal required columns for KISS runner
+    required = ["user_id", "correct"]
+    missing_required = [c for c in required if c not in df.columns]
+    if missing_required:
+        raise ValueError(f"ASSISTments missing required columns: {missing_required}")
 
-    df = df[DEFAULT_ASSIST_KEEP_COLS].copy()
+    # Keep only available expected columns
+    keep_cols = [c for c in DEFAULT_ASSIST_KEEP_COLS if c in df.columns]
+    df = df[keep_cols].copy()
 
+    # Ensure binary target and student-level percentage
     df["correct"] = df["correct"].astype(int)
     student_pct = df.groupby("user_id", as_index=False)["correct"].mean().rename(columns={"correct": "student_pct_correct"})
     df = df.merge(student_pct, on="user_id", how="left")
@@ -150,8 +155,9 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
         if str(df[c].dtype) == "Int64":
             df[c] = df[c].astype(float)
 
+    id_cols = ["user_id"] + (["problem_id"] if "problem_id" in df.columns else [])
     schema = {
-        "id_cols": ["user_id", "problem_id"],
+        "id_cols": id_cols,
         "group_col": "user_id",
         "target_cols": ["correct", "student_pct_correct"],
         "categorical_cols": cat_cols,
@@ -374,8 +380,25 @@ def sdmetrics_quality(real: pd.DataFrame, syn: pd.DataFrame) -> Dict[str, Any]:
         from sdmetrics.reports.single_table import QualityReport  # type: ignore
     except Exception as e:
         raise ImportError("sdmetrics is required. Install with: pip install sdmetrics") from e
+
+    # Detect metadata using SDV for compatibility with newer sdmetrics requiring metadata
+    metadata_dict: Optional[Dict[str, Any]] = None
+    try:
+        from sdv.metadata import SingleTableMetadata  # type: ignore
+
+        md = SingleTableMetadata()
+        md.detect_from_dataframe(real)
+        metadata_dict = md.to_dict()
+    except Exception:
+        metadata_dict = None
+
     report = QualityReport()
-    report.generate(real_data=real, synthetic_data=syn)
+    if metadata_dict is not None:
+        report.generate(real_data=real, synthetic_data=syn, metadata=metadata_dict)
+    else:
+        # Fallback for older sdmetrics that allow inferring metadata internally
+        report.generate(real_data=real, synthetic_data=syn)
+
     out: Dict[str, Any] = {"overall_score": float(report.get_score())}
     try:
         details = report.get_details()

@@ -78,28 +78,7 @@ python src/synthla_edu_v2/data/sample_loader.py
 - OULAD: https://analyse.kmi.open.ac.uk/open_dataset → `data/raw/oulad/`
 - ASSISTments: https://www.assistments.org/ → `data/raw/assistments/`
 
-### 3. Run Benchmark
-
-```bash
-export PYTHONPATH=src
-python -m synthla_edu_v2.run --config configs/quick.yaml
-```
-
-Results saved to `runs/v2_quick/` with:
-- Synthetic data (parquet)
-- Quality metrics (SDMetrics)
-- Privacy results (C2ST, MIA)
-- Utility scores (TSTR)
-- Statistical tests (bootstrap CIs, p-values)
-
-### 4. View Results
-
-```bash
-cat runs/v2_quick/run.log                    # Execution log
-head runs/v2_quick/results.csv               # Compiled metrics
-### Single-File Runner (KISS)
-
-For a minimal, one-file pipeline, use `synthla_edu.py`:
+### 3. Run (Single-File KISS)
 
 ```bash
 python synthla_edu.py \
@@ -115,15 +94,21 @@ python synthla_edu.py \
   --aggregate-assistments
 ```
 
-This single-file runner performs:
-- Gaussian Copula synthesis on the training split
-- SDMetrics quality scoring
-- C2ST realism (RF-based effective AUC)
-- MIA privacy (distance-to-synthetic, RF attacker)
+Outputs:
+- Synthetic data (parquet)
+- Quality metrics (SDMetrics)
+- Privacy results (C2ST, MIA)
 
-Outputs are written under `runs/kiss_*/*` as parquet/JSON files.
+### 4. View Results
 
+```bash
+Get-Content runs/kiss_oulad/oulad/sdmetrics__gaussian_copula.json -Tail 20
+Get-Content runs/kiss_oulad/oulad/c2st__gaussian_copula.json -Tail 20
+Get-Content runs/kiss_oulad/oulad/mia__gaussian_copula.json -Tail 20
 ```
+
+> Legacy orchestrator (deprecated): `python -m synthla_edu_v2.run --config <yaml>`
+
 
 ## Documentation
 
