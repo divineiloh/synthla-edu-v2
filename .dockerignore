@@ -1,7 +1,0 @@
-data/
-.risk/
-.venv/
-__pycache__/
-.vscode/
-runs/
-.git

@@ -1,15 +1,13 @@
-# SYNTHLA-EDU V2 — Reproducible Benchmark for Synthetic Educational Data
+# SYNTHLA-EDU V2 — Synthetic Educational Data Benchmark
 
 <div align="center">
 
-**A rigorous, multi-dataset benchmark for evaluating synthetic educational data generators with privacy-aware evaluation.**
+**Minimal single-file benchmark for synthetic educational data generation with privacy-aware evaluation.**
 
-[![Tests](https://img.shields.io/badge/tests-6%2F6%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
-[![Docker](https://img.shields.io/badge/docker-ready-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-[Quick Start](#quick-start) • [Features](#features) • [Documentation](#documentation) • [Results](#example-results)
+[Quick Start](#quick-start) • [Features](#features) • [Metrics](#key-metrics)
 
 </div>
 
@@ -17,279 +15,188 @@
 
 ## Overview
 
-SYNTHLA-EDU V2 extends SYNTHLA-EDU V1 into a cross-dataset benchmark that evaluates synthetic data generators on:
+Single-file Python benchmark for evaluating synthetic data generators on educational datasets:
 
-- **Two Datasets**: OULAD (32K+ students) and ASSISTments (4K+ students)
-- **Three Synthesizers**: Gaussian Copula, CTGAN, and TabDDPM (diffusion)
-- **Rigorous Evaluation**:
-  - **Utility** (TSTR): Classification AUC & Regression MAE with bootstrap CIs
-  - **Quality** (SDMetrics): Column shape and pair correlation similarity
-  - **Privacy** (C2ST + MIA): Realism and membership inference resistance
-
-All results are **fully reproducible** with seeding, Docker, and pinned dependencies.
-
-## ✨ Features
-
-### 🎯 Multi-Dataset
-- **OULAD**: Open University Learning Analytics (download from [analyse.kmi.open.ac.uk](https://analyse.kmi.open.ac.uk/open_dataset))
-- **ASSISTments**: Tutor interaction data (download from [assistments.org](https://www.assistments.org/))
-
-### 🔄 Multiple Synthesizers
-1. **Gaussian Copula** — Baseline statistical model
-2. **CTGAN** — Deep generative network
-3. **TabDDPM** — Diffusion model for tabular data
-
-### 🔐 Privacy-Aware Evaluation
-- **C2ST** (Classifier Two-Sample Test): Can a classifier distinguish real from synthetic? (lower = better)
-- **MIA** (Membership Inference Attack): Worst-case privacy leakage (lower = better)
-- **Multiple seeds** for robustness
-
-### 📊 Statistical Rigor
-- **Bootstrap Confidence Intervals**: 95% CIs from 1000 replicates
-- **Paired Permutation Tests**: Statistical significance testing
-- **Edge case handling**: Graceful degradation for small datasets
-
-### ✅ Reproducibility
-- Deterministic seeding throughout
-- Docker containerization
-- Pinned dependencies
-- Comprehensive logging
-- GitHub Actions CI/CD
+- **Datasets**: OULAD (student-level) and ASSISTments (interaction-level)
+- **Synthesizer**: Gaussian Copula (SDV)
+- **Evaluation**: Quality (SDMetrics), Realism (C2ST), Privacy (MIA)
 
 ## Quick Start
 
 ### 1. Install
 
 ```bash
-git clone <repo>
-cd Synthla-Edu\ V2
-pip install -r requirements-locked.txt
+git clone https://github.com/divineiloh/synthla-edu-v2.git
+cd synthla-edu-v2
+pip install -r requirements.txt
 ```
 
-### 2. Prepare Data
+### 2. Download Data
 
-**Option A**: Use sample data (for testing)
-```bash
-export PYTHONPATH=src
-python src/synthla_edu_v2/data/sample_loader.py
-```
+Download datasets and place in `data/raw/`:
 
-**Option B**: Download real datasets
-- OULAD: https://analyse.kmi.open.ac.uk/open_dataset → `data/raw/oulad/`
-- ASSISTments: https://www.assistments.org/ → `data/raw/assistments/`
+- **OULAD**: [analyse.kmi.open.ac.uk/open_dataset](https://analyse.kmi.open.ac.uk/open_dataset) → `data/raw/oulad/`
+- **ASSISTments**: [assistments.org](https://www.assistments.org/) → `data/raw/assistments/`
 
-### 3. Run (Single-File KISS)
+### 3. Run
 
 ```bash
+# OULAD
 python synthla_edu.py \
   --dataset oulad \
-  --raw-dir src/synthla_edu_v2/data/raw/oulad \
-  --out-dir runs/kiss_oulad
+  --raw-dir data/raw/oulad \
+  --out-dir runs/oulad
 
-# Or ASSISTments (optionally aggregate to student-level for evaluation)
+# ASSISTments (with student-level aggregation for evaluation)
 python synthla_edu.py \
   --dataset assistments \
-  --raw-dir src/synthla_edu_v2/data/raw/assistments \
-  --out-dir runs/kiss_assistments \
+  --raw-dir data/raw/assistments \
+  --out-dir runs/assistments \
   --aggregate-assistments
 ```
 
-Outputs:
-- Synthetic data (parquet)
-- Quality metrics (SDMetrics)
-- Privacy results (C2ST, MIA)
-
 ### 4. View Results
 
+**Windows:**
+```powershell
+Get-Content runs/oulad/oulad/sdmetrics__gaussian_copula.json
+Get-Content runs/oulad/oulad/c2st__gaussian_copula.json
+Get-Content runs/oulad/oulad/mia__gaussian_copula.json
+```
+
+**Linux/Mac:**
 ```bash
-Get-Content runs/kiss_oulad/oulad/sdmetrics__gaussian_copula.json -Tail 20
-Get-Content runs/kiss_oulad/oulad/c2st__gaussian_copula.json -Tail 20
-Get-Content runs/kiss_oulad/oulad/mia__gaussian_copula.json -Tail 20
+cat runs/oulad/oulad/sdmetrics__gaussian_copula.json
+cat runs/oulad/oulad/c2st__gaussian_copula.json
+cat runs/oulad/oulad/mia__gaussian_copula.json
 ```
 
-> Legacy orchestrator (deprecated): `python -m synthla_edu_v2.run --config <yaml>`
+## Outputs
 
+Each run produces under `runs/<dataset>/<dataset>/`:
 
-## Documentation
+- `real_full.parquet` — Complete real dataset
+- `real_train.parquet` — Training split
+- `real_test.parquet` — Test split
+- `synthetic_train__gaussian_copula.parquet` — Synthetic data
+- `schema.json` — Dataset metadata (id cols, targets, categoricals)
+- `sdmetrics__gaussian_copula.json` — Quality scores
+- `c2st__gaussian_copula.json` — Realism (classifier two-sample test)
+- `mia__gaussian_copula.json` — Privacy (membership inference attack)
 
-| Document | Purpose |
-|----------|---------|
-| **[USAGE.md](USAGE.md)** | Comprehensive user guide |
-| **[README_COMPREHENSIVE.md](README_COMPREHENSIVE.md)** | In-depth methodology & architecture |
-| **[QUICKREF.md](QUICKREF.md)** | Quick reference & command cheat sheet |
+## Key Metrics
 
-## Example Results
+| Metric | Range | Interpretation |
+|--------|-------|----------------|
+| **SDMetrics overall_score** | 0-100 | Statistical similarity (higher = better) |
+| **C2ST effective_auc_mean** | 0.5-1.0 | Realism (0.5 = indistinguishable, 1.0 = fully distinguishable) |
+| **MIA worst_case_effective_auc** | 0.5-1.0 | Privacy (0.5 = no leakage, 1.0 = total leakage) |
 
-Sample benchmark run on OULAD:
+### Example Results
 
-```
-Dataset: oulad (14 students, 6 features, 4 classes)
+**OULAD** (32,593 students):
+- Quality: 76.3%
+- C2ST: 0.67 (moderate realism)
+- MIA: 0.50 (excellent privacy)
 
-Synthesizer         Quality (SDMetrics)  C2ST AUC  MIA AUC  TSTR AUC (Dropout)
-────────────────────────────────────────────────────────────────────────────
-Gaussian Copula     88.2%                0.75      0.51     0.71 ± 0.05
-CTGAN               88.2%                0.75      0.52     0.73 ± 0.04
-TabDDPM             88.2%                nan*      nan*     nan*
-
-* Edge case: Dataset too small for some metrics (expected behavior)
-```
+**ASSISTments** (1,000 interactions):
+- Quality: 81.2%
+- C2ST: 0.54 (good realism)
+- MIA: 0.52 (excellent privacy)
 
 ## Project Structure
 
 ```
-Synthla-Edu V2/
-├── src/synthla_edu_v2/
-│   ├── run.py                 # Main orchestrator
-│   ├── data/                  # Dataset builders (OULAD, ASSISTments)
-│   ├── synth/                 # Synthesizer wrappers (GC, CTGAN, TabDDPM)
-│   └── eval/                  # Evaluation (utility, C2ST, MIA, stats)
-├── tests/                     # 6 comprehensive tests (all passing)
-├── configs/                   # quick.yaml, full.yaml
-├── Dockerfile                 # Reproducible environment
-├── .github/workflows/         # CI/CD (tests, nightly full runs)
-├── requirements-locked.txt    # Pinned dependencies
-└── docs/                      # USAGE.md, QUICKREF.md, etc.
+synthla-edu-v2/
+├── synthla_edu.py           # Single-file runner (all-in-one)
+├── requirements.txt         # Dependencies
+├── requirements-locked.txt  # Pinned versions
+├── README.md                # This file
+├── data/
+│   └── raw/                 # Place datasets here
+│       ├── oulad/           # OULAD CSVs
+│       └── assistments/     # ASSISTments CSV
+└── runs/                    # Output directory (auto-created)
 ```
 
-## Testing
+## How It Works
 
-All 6 tests pass:
+1. **Load & Preprocess**: Build student-level (OULAD) or interaction-level (ASSISTments) tables
+2. **Split**: Train/test split (30% test) with group awareness (ASSISTments) or stratification (OULAD)
+3. **Synthesize**: Fit Gaussian Copula on training data, sample synthetic records
+4. **Evaluate**:
+   - **Quality**: SDMetrics column shape + pair trends
+   - **Realism**: C2ST with Random Forest classifier (5 seeds)
+   - **Privacy**: MIA with KNN distance features + RF attacker
 
-```bash
-export PYTHONPATH=src
-pytest tests/ -v
+## Dependencies
 
-# Output:
-# test_logging.py::test_run_writes_log PASSED
-# test_overwrite_and_skip.py::test_run_overwrites_out_dir PASSED
-# test_overwrite_and_skip.py::test_run_utility_skips_single_class PASSED
-# test_smoke_quick_config.py::test_smoke_quick PASSED
-# test_stats.py::test_bootstrap_ci_auc PASSED
-# test_stats.py::test_paired_perm_test_auc PASSED
-# 
-# ✓ 6 passed in 112s
-```
+Core:
+- `pandas>=2.0`
+- `numpy>=1.24`
+- `scikit-learn>=1.3`
+- `sdv>=1.0` (Gaussian Copula synthesizer)
+- `sdmetrics>=0.14` (Quality reports)
 
-## Docker
-
-### Build
-```bash
-docker build -t synthla-edu-v2:latest .
-```
-
-### Run
-```bash
-docker run --rm \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/runs:/app/runs \
-  synthla-edu-v2:latest \
-  python -m synthla_edu_v2.run --config configs/quick.yaml
-```
-
-## Key Metrics Explained
-
-| Metric | Range | Interpretation |
-|--------|-------|---|
-| **SDMetrics Quality** | 0-100 | Column/pair statistical similarity (higher = better) |
-| **C2ST Effective AUC** | 0.5-1.0 | Can classifier distinguish real from synthetic? (0.5 = undetectable) |
-| **MIA Effective AUC** | 0.5-1.0 | Privacy leakage (0.5 = no leakage, 1.0 = total leakage) |
-| **TSTR AUC** | 0.0-1.0 | Downstream utility (higher = better) |
-| **Bootstrap CI** | - | 95% confidence interval from 1000 replicates |
-
-## Configuration
-
-### Quick Benchmark (5 min per dataset)
-```yaml
-synthesizers: [gaussian_copula, ctgan]
-# GaussianCopula: ~10s
-# CTGAN: 50 epochs (~2 min)
-```
-
-### Full Benchmark (30+ min per dataset)
-```yaml
-synthesizers: [gaussian_copula, ctgan, tabddpm]
-# + TabDDPM: 200 iterations (~1 min)
-```
-
-Create custom configs by copying `configs/quick.yaml` and modifying parameters.
+See [requirements.txt](requirements.txt) for full list.
 
 ## Advanced Usage
 
-### Programmatic API
-```python
-from pathlib import Path
-from synthla_edu_v2.run import run
+### Command-Line Options
 
-output_dir = run(Path("configs/my_config.yaml"))
-```
-
-### Sample Data Loader
 ```bash
-python src/synthla_edu_v2/data/sample_loader.py
+python synthla_edu.py --help
+
+options:
+  --dataset {oulad,assistments}
+  --raw-dir PATH            Path to raw CSV folder
+  --out-dir PATH            Output directory
+  --test-size FLOAT         Test split fraction (default: 0.3)
+  --seed INT                Random seed (default: 0)
+  --aggregate-assistments   Aggregate ASSISTments to student-level for evaluation
 ```
 
-## Reproducibility Guarantees
+### Extending the Code
 
-1. **Fixed seeds**: Controlled via config `seed` parameter
-2. **Pinned versions**: `requirements-locked.txt` locks all dependencies
-3. **Docker**: Containerized for perfect environment reproduction
-4. **Logging**: Complete execution trace in `run.log`
-5. **Result archival**: Each run clears old results (no duplicates)
+The single-file `synthla_edu.py` is modular:
 
-## CI/CD
+- **Dataset builders**: `build_oulad_student_table()`, `build_assistments_table()`
+- **Splitting**: `group_train_test_split()`, `simple_train_test_split()`
+- **Synthesizer**: `GaussianCopulaSynth` class (can swap for CTGAN/TabDDPM)
+- **Evaluations**: `sdmetrics_quality()`, `c2st_effective_auc()`, `mia_worst_case_effective_auc()`
 
-GitHub Actions workflows:
-
-- **CI** (`.github/workflows/ci.yaml`): Runs tests on every push
-- **Nightly** (`.github/workflows/nightly_full.yaml`): Full benchmark daily + artifact upload
+To add a new dataset:
+1. Implement a `build_<dataset>_table()` function returning `(df, schema)`
+2. Add to `build_dataset()` dispatcher
+3. Run with `--dataset <name>`
 
 ## Known Limitations
 
-- **Small datasets**: Some metrics may return NaN (expected, logged)
-- **Class imbalance**: Single-class stratification is skipped
-- **Data download**: Datasets require manual download from official sources
+- Single synthesizer only (Gaussian Copula)
+- No TSTR utility evaluation
+- No bootstrap CIs or permutation tests
+- Designed for quick validation, not full research benchmarks
 
-All edge cases are handled gracefully and logged.
-
-## References
-
-- OULAD: https://analyse.kmi.open.ac.uk/open_dataset
-- ASSISTments: https://www.assistments.org/
-- SDV/SDMetrics: https://github.com/sdv-dev/SDV
-- TabDDPM: https://arxiv.org/abs/2209.14734
-
-## Support
-
-- **Docs**: [USAGE.md](USAGE.md), [QUICKREF.md](QUICKREF.md), [README_COMPREHENSIVE.md](README_COMPREHENSIVE.md)
-- **Issues**: Check execution log in `runs/*/run.log`
-- **Tests**: Run `pytest tests/ -v`
+For advanced features (CTGAN, TabDDPM, statistical testing), see the original [synthla-edu](https://github.com/divineiloh/synthla-edu) repository.
 
 ## Citation
 
 ```bibtex
 @software{synthla_edu_v2,
-  title = {SYNTHLA-EDU V2: Cross-Dataset Synthetic Educational Data Benchmark},
+  title = {SYNTHLA-EDU V2: Minimal Synthetic Educational Data Benchmark},
+  author = {Divine Iloh},
   year = {2025},
-  url = {https://github.com/[your-org]/synthla-edu-v2}
+  url = {https://github.com/divineiloh/synthla-edu-v2}
 }
 ```
 
----
+## License
 
-**Status**: ✅ **Production Ready** | Tests: **6/6 passing** | Docker: **Ready** | CI/CD: **Active**
+MIT License
 
-- Build Docker image:
+## References
 
-```bash
-docker build -t synthla-edu-v2:latest .
-# run:
-docker run --rm synthla-edu-v2:latest configs/quick.yaml
-```
-
-
-## Notes
-
-- ASSISTments is split by `user_id` (group split) to avoid leakage when `student_pct_correct` is used as the regression target.
-- SDV/SDMetrics metadata is inferred from the real training split.
-
-- ASSISTments regression is evaluated on a student-level aggregation derived from the interaction-level table.
+- OULAD: [Open University Learning Analytics Dataset](https://analyse.kmi.open.ac.uk/open_dataset)
+- ASSISTments: [ASSISTments 2009-2010](https://www.assistments.org/)
+- SDV: [Synthetic Data Vault](https://github.com/sdv-dev/SDV)
+- SDMetrics: [SDV Quality Metrics](https://github.com/sdv-dev/SDMetrics)
