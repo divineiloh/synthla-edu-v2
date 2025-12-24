@@ -2,8 +2,9 @@
 
 <div align="center">
 
-**Gold-standard benchmark for synthetic educational data generation with comprehensive privacy-aware evaluation and publication-quality visualizations.**
+**Benchmark for synthetic educational data generation with comprehensive privacy-aware evaluation and publication-quality visualizations.**
 
+![CI Tests](https://github.com/divineiloh/synthla-edu-v2/workflows/CI%20Tests/badge.svg)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
