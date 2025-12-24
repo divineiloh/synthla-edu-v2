@@ -1383,6 +1383,17 @@ def create_cross_dataset_visualizations(
     Returns:
         List of saved figure paths
     """
+    
+    def score_from_effective_auc(eff_auc: float) -> float:
+        """Convert effective AUC [0.5, 1.0] to score [100, 0] where 0.5→100 (ideal)."""
+        return 200.0 * (1.0 - float(eff_auc))
+    
+    def score_from_mae(syn_mae: float, real_mae: float) -> float:
+        """Convert MAE to relative score where matching/beating real→100."""
+        syn_mae = max(float(syn_mae), 1e-12)
+        real_mae = max(float(real_mae), 1e-12)
+        return 100.0 * min(1.0, real_mae / syn_mae)
+    
     ensure_dir(figures_dir)
     saved_figs = []
     
@@ -1484,7 +1495,7 @@ def create_cross_dataset_visualizations(
             if idx == 0:
                 ax.legend(loc='upper right', frameon=True, shadow=True)
         
-        fig.suptitle('Regression Utility: Grade Prediction (Ridge Regression)', 
+        fig.suptitle('Regression Utility: Target Prediction (Ridge Regression)', 
                     fontsize=14, fontweight='bold', y=1.02)
         fig.tight_layout()
         
@@ -1585,14 +1596,15 @@ def create_cross_dataset_visualizations(
         
         for dataset in datasets:
             synths = all_results[dataset]['synthesizers']
+            baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
             for s in synth_names:
                 row_labels.append(f"{dataset.upper()}\n{s.replace('_',' ').title()}")
                 row = [
                     synths[s]['sdmetrics']['overall_score'] * 100,
-                    synths[s]['c2st']['effective_auc'] * 100,
-                    (1 - synths[s]['mia']['worst_case_effective_auc']) * 100,
+                    score_from_effective_auc(synths[s]['c2st']['effective_auc']),
+                    score_from_effective_auc(synths[s]['mia']['worst_case_effective_auc']),
                     synths[s]['utility']['classification']['rf_auc'] * 100,
-                    100 - min(synths[s]['utility']['regression']['ridge_mae'], 100)
+                    score_from_mae(synths[s]['utility']['regression']['ridge_mae'], baseline_mae)
                 ]
                 metrics_data.append(row)
         
@@ -1637,6 +1649,7 @@ def create_cross_dataset_visualizations(
         for idx, dataset in enumerate(datasets):
             ax = axes[idx]
             synths = all_results[dataset]['synthesizers']
+            baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
             
             ax.set_theta_offset(pi / 2)
             ax.set_theta_direction(-1)
@@ -1652,9 +1665,9 @@ def create_cross_dataset_visualizations(
                 values = [
                     synths[s]['sdmetrics']['overall_score'] * 100,
                     synths[s]['utility']['classification']['rf_auc'] * 100,
-                    100 - min(synths[s]['utility']['regression']['ridge_mae'], 100),
-                    (1 - synths[s]['mia']['worst_case_effective_auc']) * 100,
-                    synths[s]['c2st']['effective_auc'] * 100
+                    score_from_mae(synths[s]['utility']['regression']['ridge_mae'], baseline_mae),
+                    score_from_effective_auc(synths[s]['mia']['worst_case_effective_auc']),
+                    score_from_effective_auc(synths[s]['c2st']['effective_auc'])
                 ]
                 values += values[:1]
                 ax.plot(angles, values, 'o-', linewidth=2.5, 

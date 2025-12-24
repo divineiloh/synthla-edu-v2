@@ -111,7 +111,7 @@ cat runs/oulad/results.json
 cat runs/assistments/results.json
 
 # View 12 cross-dataset comparison visualizations
-ls runs/figures/fig*.png
+ls runs/figures/fig*_*.png
 ```
 
 ## Publication Visualizations
@@ -337,6 +337,6 @@ MIT License
 ## References
 
 - OULAD: [Open University Learning Analytics Dataset](https://analyse.kmi.open.ac.uk/open-dataset)
-- ASSISTments: [ASSISTments 2009-2010](https://www.assistments.org/)
+- ASSISTments: [ASSISTments 2009-2010 Dataset](https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data)
 - SDV: [Synthetic Data Vault](https://github.com/sdv-dev/SDV)
 - SDMetrics: [SDV Quality Metrics](https://github.com/sdv-dev/SDMetrics)
