@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import argparse
@@ -2029,11 +2030,11 @@ def run_single(
     remove_glob(out_path, "real_*.parquet")
     remove_if_exists(out_path / "metrics_summary.png")
     remove_if_exists(out_path / "schema.json")
-    print("✓ Cleanup complete\n")
+    print("[OK] Cleanup complete\n")
     
     print("Step 2/7: Loading dataset...")
     df, schema = build_dataset(dataset, raw_dir)
-    print(f"✓ Loaded {len(df):,} rows with {len(df.columns)} columns\n")
+    print(f"[OK] Loaded {len(df):,} rows with {len(df.columns)} columns\n")
 
     # Save real
     ds_out = out_path
@@ -2064,7 +2065,7 @@ def run_single(
     synth_obj.fit(train_df)
     print(f"→ Sampling {len(train_df):,} rows...")
     synthetic_data = synth_obj.sample(len(train_df))
-    print(f"✓ Synthesis complete\n")
+    print(f"[OK] Synthesis complete\n")
     synthetic_path = ds_out / f"synthetic_train__{synth_name}.parquet"
     remove_if_exists(synthetic_path)
     synthetic_data.to_parquet(synthetic_path, index=False)
@@ -2095,13 +2096,13 @@ def run_single(
     mia_path = ds_out / f"mia__{synth_name}.json"
     remove_if_exists(mia_path)
     write_json(mia_path, privacy_metrics)
-    print("✓ Evaluations complete\n")
+    print("[OK] Evaluations complete\n")
 
     print("Step 6/7: Generating visualizations...")
     # Re-generate summary plot
     remove_if_exists(ds_out / "metrics_summary.png")
     plot_main_results(ds_out)
-    print("✓ Visualization saved\n")
+    print("[OK] Visualization saved\n")
 
     print("="*70)
     print("Run Complete!")
@@ -2146,16 +2147,16 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         remove_glob(ds_out, "*.parquet")
         remove_glob(ds_out, "*.json")
         remove_glob(ds_out, "*.png")
-        print(f"[{dataset.upper()}] ✓ Cleanup complete\n")
+        print(f"[{dataset.upper()}] [OK] Cleanup complete\n")
         
         print(f"[{dataset.upper()}] Step 2/7: Loading and building dataset...")
         df, schema = build_dataset(dataset, raw_dir)
-        print(f"[{dataset.upper()}] ✓ Loaded {len(df):,} rows with {len(df.columns)} columns\n")
+        print(f"[{dataset.upper()}] [OK] Loaded {len(df):,} rows with {len(df.columns)} columns\n")
 
         print(f"[{dataset.upper()}] Step 3/7: Splitting dataset (train/test)...")
         strat_col = next(iter(schema.get("target_cols", [])), None)
         train_df, test_df = split_dataset(df, schema, test_size=test_size, seed=seed, stratify_col=strat_col)
-        print(f"[{dataset.upper()}] ✓ Train: {len(train_df):,} rows | Test: {len(test_df):,} rows\n")
+        print(f"[{dataset.upper()}] [OK] Train: {len(train_df):,} rows | Test: {len(test_df):,} rows\n")
 
         # Consolidated storage rows
         all_rows = []
@@ -2217,7 +2218,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             syn = synth_obj.sample(len(train_df))
             sample_time = time.perf_counter() - sample_start
             synthetic_datasets[synth_name] = syn  # Store for visualizations
-            print(f"  ✓ Synthesis complete\n")
+            print(f"  [OK] Synthesis complete\n")
 
             syn_rows = syn.copy(); syn_rows["split"] = "synthetic_train"; syn_rows["synthesizer"] = synth_name
             all_rows.append(syn_rows)
@@ -2231,7 +2232,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             c2 = c2st_effective_auc(test_df, syn, test_size=0.3, seed=seed)
             print(f"    • MIA Privacy Attack...")
             mia = mia_worst_case_effective_auc(train_df, test_df, syn, exclude_cols=schema.get("id_cols", []), test_size=0.3, random_state=seed, k=5)
-            print(f"  ✓ Evaluations complete\n")
+            print(f"  [OK] Evaluations complete\n")
 
             per_sample_losses[synth_name] = {
                 "cls_logloss": np.array(util["per_sample"]["cls_logloss_rf"]),
@@ -2258,14 +2259,14 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
                 cls_test = paired_permutation_test(per_sample_losses[a]["cls_logloss"], per_sample_losses[b]["cls_logloss"], n_perm=2000, random_state=seed)
                 reg_test = paired_permutation_test(per_sample_losses[a]["reg_abs_err"], per_sample_losses[b]["reg_abs_err"], n_perm=2000, random_state=seed)
                 results["pairwise_tests"][f"{a}_vs_{b}"] = {"classification": cls_test, "regression": reg_test}
-        print(f"[{dataset.upper()}] ✓ Pairwise tests complete\n")
+        print(f"[{dataset.upper()}] [OK] Pairwise tests complete\n")
 
         print(f"[{dataset.upper()}] Step 6/7: Saving consolidated results...")
         data_parquet = pd.concat(all_rows, axis=0, ignore_index=True)
         data_parquet.to_parquet(ds_out / "data.parquet", index=False)
         write_json(ds_out / "results.json", results)
-        print(f"[{dataset.upper()}] ✓ Saved data.parquet ({len(data_parquet):,} rows)")
-        print(f"[{dataset.upper()}] ✓ Saved results.json\n")
+        print(f"[{dataset.upper()}] [OK] Saved data.parquet ({len(data_parquet):,} rows)")
+        print(f"[{dataset.upper()}] [OK] Saved results.json\n")
 
         # Store for cross-dataset visualizations
         all_dataset_results[dataset] = results
@@ -2286,7 +2287,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     # Clean previous figures
     print("Cleaning previous figures...")
     remove_glob(figures_dir, "*.png")
-    print("✓ Cleanup complete\n")
+    print("[OK] Cleanup complete\n")
     
     print("Creating 12 gold-standard cross-dataset comparison figures...")
     saved_figures = create_cross_dataset_visualizations(
@@ -2296,7 +2297,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         all_synthetic_data
     )
     
-    print(f"\n✓ Generated {len(saved_figures)} publication-quality visualizations:")
+    print(f"\n[OK] Generated {len(saved_figures)} publication-quality visualizations:")
     for fig_path in saved_figures:
         print(f"  • {fig_path.name}")
 
