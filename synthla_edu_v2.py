@@ -264,10 +264,12 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
     )
     vle_feat["clicks_per_active_day"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_days"].replace(0, np.nan)
 
-    sass = sass.merge(info[keys], on="id_student", how="left")
-    ass_weights = ass[keys[:-1] + ["id_assessment", "weight"]].copy()
-    sass = sass.merge(ass_weights, on=["code_module", "code_presentation", "id_assessment"], how="left")
-
+    # Fix: First attach (code_module, code_presentation, weight) from assessments to studentAssessment
+    # This prevents many-to-many join that would duplicate rows
+    ass_meta = ass[["id_assessment", "code_module", "code_presentation", "weight"]].copy()
+    sass = sass.merge(ass_meta, on="id_assessment", how="left")
+    
+    # Now aggregate grades by (code_module, code_presentation, id_student)
     sass["score_x_weight"] = sass["score"] * sass["weight"]
     grade_feat = (
         sass.groupby(keys, as_index=False)
@@ -323,6 +325,7 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
 
     schema = {
         "id_cols": keys,
+        "group_col": "id_student",  # Ensure grouped splitting to prevent student leakage
         "target_cols": ["dropout", "final_grade"],
         "categorical_cols": [c for c in cat_cols if c in df.columns],
     }
