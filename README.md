@@ -30,14 +30,19 @@ Single-file Python benchmark for evaluating synthetic data generators on educati
 ```bash
 git clone https://github.com/divineiloh/synthla-edu-v2.git
 cd synthla-edu-v2
-pip install -r requirements.txt
+
+# Recommended: Use locked versions for exact reproducibility
+pip install -r requirements-locked.txt
+
+# Alternative: Minimum versions (may differ from paper)
+# pip install -r requirements.txt
 ```
 
 ### 2. Download Data
 
 Download datasets and place in `data/raw/`:
 
-- **OULAD**: [analyse.kmi.open.ac.uk/open_dataset](https://analyse.kmi.open.ac.uk/open-dataset) → `data/raw/oulad/`
+- **OULAD**: [analyse.kmi.open.ac.uk/open-dataset](https://analyse.kmi.open.ac.uk/open-dataset) → `data/raw/oulad/`
 - **ASSISTments**: [assistments.org](https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data) → `data/raw/assistments/`
 
 ### 3. Run
@@ -160,12 +165,14 @@ Cross-dataset visualizations in `runs/figures/`:
 |--------|-------|----------------|
 | **Quality** (SDMetrics overall_score) | 0–100 | Statistical similarity to real data (higher = better) |
 | **Utility** (TSTR/TRTR AUC) | 0–1 | Predictive performance on downstream tasks (higher = better) |
-| **Realism** (C2ST effective_auc) | 0.5–1.0 | Detectability by classifier: 0.5 = indistinguishable, 1.0 = fully distinguishable (lower = better) |
+| **Realism** (C2ST effective_auc) | 0.5–1.0 | Detectability by classifier: 0.5 = indistinguishable, 1.0 = fully distinguishable (lower = better). Note: Single-seed C2ST; key may vary ('c2st_effective_auc' or 'effective_auc') |
 | **Privacy** (MIA worst_case_effective_auc) | 0.5–1.0 | Membership inference risk: 0.5 = no leakage, 1.0 = total leakage (lower = better) |
 | **Bootstrap CI** | 95% | Confidence intervals from 1,000 resamples per metric |
 | **Permutation test p-value** | [0, 1] | Significance of pairwise model differences (lower = significant) |
 
 ### Example Results
+
+**Note**: Results below are from development runs using `--quick` mode. For publication-quality results, re-run with `--run-all` (full epochs/iterations) on your hardware.
 
 **OULAD (Gaussian Copula)**:
 - Quality: 76.3% | Utility (RF AUC): 0.83 | Realism: 0.67 (moderate) | Privacy: 0.50 (excellent)
@@ -182,7 +189,7 @@ Cross-dataset visualizations in `runs/figures/`:
 
 ```
 synthla-edu-v2/
-├── synthla_edu.py           # Single-file runner (all-in-one)
+├── synthla_edu_v2.py         # Single-file runner (all-in-one)
 ├── requirements.txt         # Dependencies
 ├── requirements-locked.txt  # Pinned versions
 ├── README.md                # This file
@@ -195,12 +202,12 @@ synthla-edu-v2/
 
 ## How It Works
 
-1. **Load & Preprocess**: Build student-level (OULAD) or interaction-level (ASSISTments) tables
+1. **Load & Preprocess**: Build student-level (OULAD) or student-level aggregated (ASSISTments) tables
 2. **Split**: Train/test split (30% test) with group awareness (ASSISTments) or stratification (OULAD)
 3. **Synthesize**: Fit Gaussian Copula on training data, sample synthetic records
 4. **Evaluate**:
    - **Quality**: SDMetrics column shape + pair trends
-   - **Realism**: C2ST with Random Forest classifier (5 seeds)
+   - **Realism**: C2ST with Random Forest classifier (single seed)
    - **Privacy**: MIA with KNN distance features + RF attacker
 
 ## Dependencies
@@ -329,7 +336,7 @@ MIT License
 
 ## References
 
-- OULAD: [Open University Learning Analytics Dataset](https://analyse.kmi.open.ac.uk/open_dataset)
+- OULAD: [Open University Learning Analytics Dataset](https://analyse.kmi.open.ac.uk/open-dataset)
 - ASSISTments: [ASSISTments 2009-2010](https://www.assistments.org/)
 - SDV: [Synthetic Data Vault](https://github.com/sdv-dev/SDV)
 - SDMetrics: [SDV Quality Metrics](https://github.com/sdv-dev/SDMetrics)

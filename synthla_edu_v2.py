@@ -649,6 +649,8 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     rf_cls.fit(X_syn_cls, y_syn_cls)
     rf_prob = rf_cls.predict_proba(X_real_te_cls)[:, 1]
     rf_auc = float(roc_auc_score(y_real_te_cls, rf_prob))
+    # Compute per-sample log loss for statistical tests
+    rf_logloss_vec = -np.log(np.clip(rf_prob * y_real_te_cls + (1 - rf_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
     # Bootstrap CI for AUC: resample test set and recompute AUC
     rng_rf = np.random.default_rng(0)
     rf_auc_boots = []
@@ -661,6 +663,8 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     lr_cls.fit(X_syn_cls, y_syn_cls)
     lr_prob = lr_cls.predict_proba(X_real_te_cls)[:, 1]
     lr_auc = float(roc_auc_score(y_real_te_cls, lr_prob))
+    # Compute per-sample log loss for statistical tests
+    lr_logloss_vec = -np.log(np.clip(lr_prob * y_real_te_cls + (1 - lr_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
     # Bootstrap CI for AUC: resample test set and recompute AUC
     rng_lr = np.random.default_rng(1)
     lr_auc_boots = []
@@ -808,9 +812,11 @@ def plot_model_comparison(dataset_dir: str | Path) -> Path:
                 sd = metrics.get("sdmetrics", {})
                 c2 = metrics.get("c2st", {})
                 mia = metrics.get("mia", {})
+                # Fallback chain for C2ST key (single-seed may vary)
+                c2st_auc = float(c2.get("effective_auc", c2.get("c2st_effective_auc", 0.0)))
                 models[synth_name] = {
                     "Quality": float(sd.get("overall_score", 0.0)) * 100.0,
-                    "Realism": float(c2.get("effective_auc", 0.0)) * 100.0,
+                    "Realism": c2st_auc * 100.0,
                     "Privacy": float(mia.get("worst_case_effective_auc", 0.0)) * 100.0,
                 }
         except Exception:
@@ -1755,9 +1761,18 @@ def create_cross_dataset_visualizations(
     try:
         fig, ax = plt.subplots(figsize=(12, 6))
         
-        # Mock timing data (in production, extract from actual logs)
-        train_times = {'gaussian_copula': 5, 'ctgan': 180, 'tabddpm': 360}
-        sample_times = {'gaussian_copula': 2, 'ctgan': 30, 'tabddpm': 120}
+        # Extract real timing data from results
+        train_times = {}
+        sample_times = {}
+        for dataset in datasets:
+            for synth_name in synth_names:
+                timing = all_results[dataset]['synthesizers'][synth_name].get('timing', {})
+                if timing:
+                    train_times[synth_name] = timing.get('fit_seconds', 0)
+                    sample_times[synth_name] = timing.get('sample_seconds', 0)
+                    break  # Use first dataset's timings
+            if train_times:  # Found timings
+                break
         
         x = np.arange(len(synth_names))
         width = 0.35
@@ -2174,9 +2189,17 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             else:
                 synth_obj = GaussianCopulaSynth(**params)
 
+            # Capture actual fit timing
+            fit_start = time.perf_counter()
             synth_obj.fit(train_df)
+            fit_time = time.perf_counter() - fit_start
+            
             print(f"  → Sampling {len(train_df):,} synthetic rows...")
+            
+            # Capture actual sample timing
+            sample_start = time.perf_counter()
             syn = synth_obj.sample(len(train_df))
+            sample_time = time.perf_counter() - sample_start
             synthetic_datasets[synth_name] = syn  # Store for visualizations
             print(f"  ✓ Synthesis complete\n")
 
@@ -2199,7 +2222,17 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
                 "reg_abs_err": np.array(util["per_sample"]["reg_abs_err_rf"]),
             }
 
-            results["synthesizers"][synth_name] = {"sdmetrics": qual, "c2st": c2, "mia": mia, "utility": util}
+            results["synthesizers"][synth_name] = {
+                "sdmetrics": qual, 
+                "c2st": c2, 
+                "mia": mia, 
+                "utility": util,
+                "timing": {
+                    "fit_seconds": round(fit_time, 2),
+                    "sample_seconds": round(sample_time, 2),
+                    "total_seconds": round(fit_time + sample_time, 2)
+                }
+            }
 
         print(f"[{dataset.upper()}] Step 5/7: Pairwise statistical significance tests...")
         pairs = [("ctgan", "tabddpm"), ("ctgan", "gaussian_copula"), ("tabddpm", "gaussian_copula")]
