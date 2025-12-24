@@ -170,14 +170,14 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
         "avg_response_time": (grp["ms_first_response"].mean().values.astype(float) if "ms_first_response" in df.columns else grp.size().values.astype(float)),
     })
 
-    # Deterministic classification target: correct_on_first_attempt
-    out["correct_on_first_attempt"] = (out["student_pct_correct"] >= 0.5).astype(int)
+    # Binary classification target: high_accuracy (student_pct_correct >= 0.5)
+    out["high_accuracy"] = (out["student_pct_correct"] >= 0.5).astype(int)
     out["user_id"] = out["user_id"].astype("int64")
 
     schema = {
         "id_cols": ["user_id"],
         "group_col": "user_id",
-        "target_cols": ["correct_on_first_attempt", "student_pct_correct"],
+        "target_cols": ["high_accuracy", "student_pct_correct"],
         "categorical_cols": [],
     }
     return out, schema

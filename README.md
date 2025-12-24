@@ -148,9 +148,9 @@ SYNTHLA-EDU V2 automatically generates **12 gold-standard cross-dataset comparis
 Each dataset in `runs/<dataset>/` contains:
 - **`data.parquet`** — Consolidated data with columns: `[..., split: {real_train, real_test, synthetic_train}, synthesizer: {real, gaussian_copula, ctgan, tabddpm}]`
 - **`results.json`** — Comprehensive metrics for all 3 synthesizers:
-  - `synthesizers.<name>`: `{sdmetrics, c2st, mia, utility}` with bootstrap CIs
+  - `synthesizers.<name>`: `{sdmetrics, c2st, mia, utility, timing}` with bootstrap CIs
+    - `utility.per_sample`: Individual errors for all test samples (nested under utility)
   - `pairwise_tests`: Statistical significance tests
-  - `per_sample`: Individual errors for all test samples
 
 Cross-dataset visualizations in `runs/figures/`:
 - **`fig1-fig12.png`** — 12 publication-ready cross-dataset comparison figures
@@ -163,9 +163,9 @@ Cross-dataset visualizations in `runs/figures/`:
 
 | Metric | Range | Interpretation |
 |--------|-------|----------------|
-| **Quality** (SDMetrics overall_score) | 0–100 | Statistical similarity to real data (higher = better) |
+| **Quality** (SDMetrics overall_score) | 0–1 (0–100% in figures) | Statistical similarity to real data (stored as 0–1; displayed as %; higher = better) |
 | **Utility** (TSTR/TRTR AUC) | 0–1 | Predictive performance on downstream tasks (higher = better) |
-| **Realism** (C2ST effective_auc) | 0.5–1.0 | Detectability by classifier: 0.5 = indistinguishable, 1.0 = fully distinguishable (lower = better). Note: Single-seed C2ST; key may vary ('c2st_effective_auc' or 'effective_auc') |
+| **Realism** (C2ST effective_auc) | 0.5–1.0 | Detectability by classifier: 0.5 = indistinguishable, 1.0 = fully distinguishable (lower = better) |
 | **Privacy** (MIA worst_case_effective_auc) | 0.5–1.0 | Membership inference risk: 0.5 = no leakage, 1.0 = total leakage (lower = better) |
 | **Bootstrap CI** | 95% | Confidence intervals from 1,000 resamples per metric |
 | **Permutation test p-value** | [0, 1] | Significance of pairwise model differences (lower = significant) |
@@ -208,7 +208,7 @@ synthla-edu-v2/
 4. **Evaluate**:
    - **Quality**: SDMetrics column shape + pair trends
    - **Realism**: C2ST with Random Forest classifier (single seed)
-   - **Privacy**: MIA with KNN distance features + RF attacker
+   - **Privacy**: MIA with KNN distance features + multi-attacker (LR, RF, XGBoost) worst-case
 
 ## Dependencies
 
