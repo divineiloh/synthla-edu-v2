@@ -594,7 +594,7 @@ def mia_worst_case_effective_auc(real_train: pd.DataFrame, real_holdout: pd.Data
     # Multi-attacker: Logistic Regression, Random Forest, optional XGBoost; worst-case effective AUC
     results: Dict[str, Any] = {"attackers": {}}
 
-    lr = LogisticRegression(max_iter=1000, solver="liblinear")
+    lr = LogisticRegression(max_iter=1000, solver="liblinear", random_state=random_state)
     lr.fit(X_train, y_train)
     lr_prob = lr.predict_proba(X_test)[:, 1]
     lr_auc = float(roc_auc_score(y_test, lr_prob))
@@ -652,7 +652,7 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     rf_logloss_vec = - (y_real_te_cls * np.log(np.clip(rf_prob, 1e-6, 1-1e-6)) + (1 - y_real_te_cls) * np.log(np.clip(1 - rf_prob, 1e-6, 1-1e-6)))
     rf_auc_ci = bootstrap_ci(rf_logloss_vec)
 
-    lr_cls = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear"))])
+    lr_cls = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=0))])
     lr_cls.fit(X_syn_cls, y_syn_cls)
     lr_prob = lr_cls.predict_proba(X_real_te_cls)[:, 1]
     lr_auc = float(roc_auc_score(y_real_te_cls, lr_prob))
@@ -687,7 +687,7 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     rf_trtr_prob = rf_trtr.predict_proba(X_real_te_cls)[:, 1]
     rf_trtr_auc = float(roc_auc_score(y_real_te_cls, rf_trtr_prob))
 
-    lr_trtr = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear"))])
+    lr_trtr = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=0))])
     lr_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     lr_trtr_prob = lr_trtr.predict_proba(X_real_te_cls)[:, 1]
     lr_trtr_auc = float(roc_auc_score(y_real_te_cls, lr_trtr_prob))
