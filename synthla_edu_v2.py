@@ -649,15 +649,25 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     rf_cls.fit(X_syn_cls, y_syn_cls)
     rf_prob = rf_cls.predict_proba(X_real_te_cls)[:, 1]
     rf_auc = float(roc_auc_score(y_real_te_cls, rf_prob))
-    rf_logloss_vec = - (y_real_te_cls * np.log(np.clip(rf_prob, 1e-6, 1-1e-6)) + (1 - y_real_te_cls) * np.log(np.clip(1 - rf_prob, 1e-6, 1-1e-6)))
-    rf_auc_ci = bootstrap_ci(rf_logloss_vec)
+    # Bootstrap CI for AUC: resample test set and recompute AUC
+    rng_rf = np.random.default_rng(0)
+    rf_auc_boots = []
+    for _ in range(1000):
+        idx = rng_rf.integers(0, len(y_real_te_cls), size=len(y_real_te_cls))
+        rf_auc_boots.append(float(roc_auc_score(y_real_te_cls[idx], rf_prob[idx])))
+    rf_auc_ci = {"mean": float(np.mean(rf_auc_boots)), "ci_low": float(np.quantile(rf_auc_boots, 0.025)), "ci_high": float(np.quantile(rf_auc_boots, 0.975))}
 
     lr_cls = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=0))])
     lr_cls.fit(X_syn_cls, y_syn_cls)
     lr_prob = lr_cls.predict_proba(X_real_te_cls)[:, 1]
     lr_auc = float(roc_auc_score(y_real_te_cls, lr_prob))
-    lr_logloss_vec = - (y_real_te_cls * np.log(np.clip(lr_prob, 1e-6, 1-1e-6)) + (1 - y_real_te_cls) * np.log(np.clip(1 - lr_prob, 1e-6, 1-1e-6)))
-    lr_auc_ci = bootstrap_ci(lr_logloss_vec)
+    # Bootstrap CI for AUC: resample test set and recompute AUC
+    rng_lr = np.random.default_rng(1)
+    lr_auc_boots = []
+    for _ in range(1000):
+        idx = rng_lr.integers(0, len(y_real_te_cls), size=len(y_real_te_cls))
+        lr_auc_boots.append(float(roc_auc_score(y_real_te_cls[idx], lr_prob[idx])))
+    lr_auc_ci = {"mean": float(np.mean(lr_auc_boots)), "ci_low": float(np.quantile(lr_auc_boots, 0.025)), "ci_high": float(np.quantile(lr_auc_boots, 0.975))}
 
     # Regression: RFReg + Ridge, train on synthetic, test on real
     X_syn_reg, y_syn_reg = split_X_y(synthetic_train, reg_target)
@@ -2136,7 +2146,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         if dataset == "oulad":
             class_target, reg_target = "dropout", "final_grade"
         else:
-            class_target, reg_target = "correct_on_first_attempt", "student_pct_correct"
+            class_target, reg_target = "high_accuracy", "student_pct_correct"
 
         print(f"[{dataset.upper()}] Step 4/7: Training {len(synthesizers)} synthesizers...\n")
         

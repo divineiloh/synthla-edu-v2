@@ -125,7 +125,7 @@ Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
 - **`num_scaffold_problems`** (int) - Count of scaffolding problems
 
 #### Target Variables
-- **`correct_on_first_attempt`** (float) - Classification target: student's first-attempt accuracy rate (0-1)
+- **`high_accuracy`** (binary) - Classification target: 1 if student_pct_correct >= 0.5 (50%), else 0
 - **`student_pct_correct`** (float) - Regression target: overall correctness percentage (0-100)
 
 ### Feature Engineering Steps
@@ -166,7 +166,7 @@ Both datasets are aggregated to **student-level** with:
 | Dataset | Classification Target | Regression Target |
 |---------|----------------------|-------------------|
 | OULAD | `dropout` (0/1) | `final_grade` (0-100) |
-| ASSISTments | `correct_on_first_attempt` (0-1) | `student_pct_correct` (0-100) |
+| ASSISTments | `high_accuracy` (binary) | `student_pct_correct` (0-100) |
 
 ### Feature Categories
 
@@ -197,7 +197,7 @@ df_assist, schema_assist = build_dataset("assistments", "data/raw")
 ```python
 schema = {
     "id_cols": ["id_student"],  # or ["user_id"]
-    "target_cols": ["dropout", "final_grade"],  # or ["correct_on_first_attempt", "student_pct_correct"]
+    "target_cols": ["dropout", "final_grade"],  # or ["high_accuracy", "student_pct_correct"]
     "categorical_cols": ["gender", "region", ...],
     "numeric_cols": ["total_clicks", "avg_assessment_score", ...],
     "group_col": "id_student"  # For group-aware splitting

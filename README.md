@@ -42,7 +42,7 @@ Download datasets and place in `data/raw/`:
 
 ### 3. Run
 
-**Full experimental matrix (2 datasets × 3 synthesizers, ~30–60 min on CPU):**
+**Full experimental matrix (2 datasets × 3 synthesizers):**
 ```bash
 # Consolidated outputs: data.parquet + results.json per dataset
 python synthla_edu_v2.py \
@@ -288,9 +288,10 @@ The single-file `synthla_edu_v2.py` is modular:
 ## Known Limitations & Future Work
 
 - **TabDDPM CSV parsing**: Occasional issues on large OULAD splits; use `engine='python'` fallback if needed
-- **Compute**: Full matrix on CPU ~30–60 min; faster on GPU (CTGAN/TabDDPM benefit from `n_jobs=-1` and GPU acceleration)
+- **Compute**: Runtime varies by hardware; CTGAN/TabDDPM benefit from GPU acceleration. Use `--quick` for faster validation runs.
 - **XGBoost MIA attacker**: Optional; requires `pip install xgboost` for multi-attacker MIA
 - **Extensibility**: Easy to add new datasets, synthesizers, or attackers by following the modular structure
+- **Containerization**: Docker/Singularity support is out of scope for this release; reproducibility is ensured via pinned dependencies (`requirements-locked.txt`) and CI validation. Docker support available upon request.
 
 For original research pipeline, see [synthla-edu](https://github.com/divineiloh/synthla-edu) (full V1 codebase).
 
