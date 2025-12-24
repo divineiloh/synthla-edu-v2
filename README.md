@@ -42,7 +42,9 @@ Download datasets and place in `data/raw/`:
 
 ### 3. Run
 
-**Full experimental matrix (2 datasets × 3 synthesizers):**
+**Option A: Native Python**
+
+Full experimental matrix (2 datasets × 3 synthesizers):
 ```bash
 # Consolidated outputs: data.parquet + results.json per dataset
 python synthla_edu_v2.py \
@@ -55,6 +57,21 @@ python synthla_edu_v2.py \
 ```bash
 python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --quick
 ```
+
+**Option B: Docker (optional, fully reproducible environment)**
+
+```bash
+# Build image
+docker build -t synthla-edu-v2 .
+
+# Run with mounted data/output directories
+docker run -v $(pwd)/data/raw:/app/data/raw \
+           -v $(pwd)/runs:/app/runs \
+           synthla-edu-v2 \
+           python synthla_edu_v2.py --run-all --quick --raw-dir data/raw --out-dir runs
+```
+
+See [DOCKER.md](DOCKER.md) for detailed Docker instructions, GPU support, and docker-compose setup.
 
 **Single synthesizer (legacy, per-synth outputs):**
 ```bash
@@ -291,7 +308,7 @@ The single-file `synthla_edu_v2.py` is modular:
 - **Compute**: Runtime varies by hardware; CTGAN/TabDDPM benefit from GPU acceleration. Use `--quick` for faster validation runs.
 - **XGBoost MIA attacker**: Optional; requires `pip install xgboost` for multi-attacker MIA
 - **Extensibility**: Easy to add new datasets, synthesizers, or attackers by following the modular structure
-- **Containerization**: Docker/Singularity support is out of scope for this release; reproducibility is ensured via pinned dependencies (`requirements-locked.txt`) and CI validation. Docker support available upon request.
+- **Containerization**: Docker support provided via `Dockerfile` and [DOCKER.md](DOCKER.md). Reproducibility baseline uses pinned dependencies (`requirements-locked.txt`) and CI validation.
 
 For original research pipeline, see [synthla-edu](https://github.com/divineiloh/synthla-edu) (full V1 codebase).
 
