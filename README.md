@@ -37,8 +37,8 @@ pip install -r requirements.txt
 
 Download datasets and place in `data/raw/`:
 
-- **OULAD**: [analyse.kmi.open.ac.uk/open_dataset](https://analyse.kmi.open.ac.uk/open_dataset) → `data/raw/oulad/`
-- **ASSISTments**: [assistments.org](https://www.assistments.org/) → `data/raw/assistments/`
+- **OULAD**: [analyse.kmi.open.ac.uk/open_dataset](https://analyse.kmi.open.ac.uk/open-dataset) → `data/raw/oulad/`
+- **ASSISTments**: [assistments.org](https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data) → `data/raw/assistments/`
 
 ### 3. Run
 
