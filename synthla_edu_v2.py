@@ -1778,7 +1778,7 @@ def create_cross_dataset_visualizations(
     try:
         fig, ax = plt.subplots(figsize=(12, 6))
         
-        # Extract real timing data from results
+        # Extract real timing data from results (use first dataset with complete timing data)
         train_times = {}
         sample_times = {}
         for dataset in datasets:
@@ -1787,8 +1787,7 @@ def create_cross_dataset_visualizations(
                 if timing:
                     train_times[synth_name] = timing.get('fit_seconds', 0)
                     sample_times[synth_name] = timing.get('sample_seconds', 0)
-                    break  # Use first dataset's timings
-            if train_times:  # Found timings
+            if len(train_times) == len(synth_names):  # Got all synthesizers from this dataset
                 break
         
         x = np.arange(len(synth_names))
