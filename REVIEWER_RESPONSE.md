@@ -37,7 +37,7 @@ Always run WITHOUT --quick for evaluation or publication.
 - Updated 3 locations in DATA_SCHEMA.md to emphasize fraction storage
 - Removed misleading `× 100` from feature engineering formula
 
-**Before:**
+**Before (incorrect):**
 ```markdown
 student_pct_correct = (num_correct / total_problems) × 100
 ```

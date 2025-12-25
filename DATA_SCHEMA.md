@@ -148,7 +148,7 @@ Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
 - **Original Rows**: ~500,000 interactions
 - **Aggregated Rows**: ~4,000-5,000 students
 - **Train/Test Split**: 70/30 with group-aware splitting (by user_id)
-- **Target Distribution**: Student accuracy ranges 0-100%
+- **Target Distribution**: Student accuracy ranges 0.0–1.0 **as stored** (equivalently 0–100%)
 
 ---
 
