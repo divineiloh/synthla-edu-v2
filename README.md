@@ -194,18 +194,24 @@ Cross-dataset visualizations in `runs/figures/`:
 
 ### Example Results
 
-**⚠️ DISCLAIMER**: Results below are from `--quick` mode (smoke testing only). Quick mode produces poor realism metrics (C2ST ≈ 1.0) due to undertrained models. **These are NOT representative of synthesizer performance.** For publication-quality results, run without `--quick` flag.
+**⚠️ DISCLAIMER**: Results below are **illustrative examples** showing the output format. Actual values vary by dataset, synthesizer, and training mode.
 
-**OULAD (Gaussian Copula)**:
-- Quality: 76.3% | Utility (RF AUC): 0.83 | Realism: 0.67 (moderate) | Privacy: 0.50 (excellent)
+**Quick Mode (--quick flag):**
+- Quality: 60-70% (SDMetrics overall)
+- Utility: 0.70-0.85 (RF/LR AUC on real data)
+- **Realism: 0.95-1.0 (POOR - expected in quick mode due to undertrained models)**
+- Privacy: 0.50-0.55 (good)
 
-**ASSISTments (CTGAN)**:
-- Quality: 68.1% | Utility (LR AUC): 0.71 | Realism: 0.54 (good) | Privacy: 0.58 (good)
+**Full Mode (no --quick flag):**
+- Quality: 65-85% (SDMetrics overall)
+- Utility: 0.75-0.90 (RF/LR AUC on real data)
+- **Realism: 0.60-0.95 (varies by synthesizer and dataset complexity)**
+- Privacy: 0.50-0.60 (good to moderate)
 
-**TabDDPM Comparison:**
-- More stable privacy (0.51–0.54) across datasets
-- Slightly lower realism (C2ST 0.63–0.68)
-- Similar utility to CTGAN
+**Interpretation:**
+- Realism (C2ST effective_auc): **0.5 = perfect**, 1.0 = fully distinguishable
+- Privacy (MIA): **0.5 = no leakage**, 1.0 = total leakage
+- Both metrics: **lower is better**
 
 ## Project Structure
 

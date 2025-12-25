@@ -378,11 +378,15 @@ class GaussianCopulaSynth:
         from sdv.metadata import SingleTableMetadata  # type: ignore
         from sdv.single_table import GaussianCopulaSynthesizer  # type: ignore
         
-        # Fix problematic category values that SDV can't handle
+        # WORKAROUND: SDV 1.0+ categorical transformer bug with special characters
+        # Issue: RDT's FrequencyEncoder.map_labels fails on category values containing '<=' or '>='
+        # Error: KeyError when mapping '55<=' in age_band column
+        # Solution: Sanitize all categorical columns before fit, restore after sample
+        # Scope: Applied to ALL object/categorical columns for consistency
+        # Tested: Correctly restores original values (e.g., '55<=', '0-35', '35-55')
         df_fixed = df_train.copy()
         for col in df_fixed.columns:
             if pd.api.types.is_categorical_dtype(df_fixed[col]) or df_fixed[col].dtype == 'object':
-                # Replace '<=' and '>=' in category names (SDV's categorical transformer has a bug with these)
                 df_fixed[col] = df_fixed[col].astype(str).replace({'55<=': '55_plus', '0-35': '0_35', '35-55': '35_55'})
         
         md = SingleTableMetadata()

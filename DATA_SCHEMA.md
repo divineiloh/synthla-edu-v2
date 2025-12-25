@@ -166,7 +166,7 @@ Both datasets are aggregated to **student-level** with:
 | Dataset | Classification Target | Regression Target |
 |---------|----------------------|-------------------|
 | OULAD | `dropout` (0/1) | `final_grade` (0-100) |
-| ASSISTments | `high_accuracy` (binary) | `student_pct_correct` (0-100) |
+| ASSISTments | `high_accuracy` (binary) | `student_pct_correct` (0.0-1.0 fraction) |
 
 ### Feature Categories
 
