@@ -115,7 +115,7 @@ Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
 #### Student-Level Aggregated Features (Post-Aggregation)
 - **`total_problems_attempted`** (int) - Count of problems attempted
 - **`num_correct_first_attempt`** (int) - Count of correct first attempts
-- **`student_pct_correct`** (float) - Percentage correct (0-100)
+- **`student_pct_correct`** (float) - **Fraction correct (0.0-1.0, not percentage)** - stored as decimal, not 0-100 scale
 - **`avg_attempt_count`** (float) - Mean attempts per problem
 - **`total_hints_used`** (int) - Sum of all hints requested
 - **`avg_hints_per_problem`** (float) - Mean hints per problem
@@ -126,7 +126,7 @@ Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
 
 #### Target Variables
 - **`high_accuracy`** (binary) - Classification target: 1 if student_pct_correct >= 0.5 (50%), else 0
-- **`student_pct_correct`** (float) - Regression target: overall correctness percentage (0-100)
+- **`student_pct_correct`** (float) - **Regression target: fraction correct (0.0-1.0 scale, NOT 0-100 percentage)**
 
 ### Feature Engineering Steps
 
@@ -137,7 +137,7 @@ Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
    - Calculate percentage correct
    - Average attempts, hints, response times
 3. **Create derived features**:
-   - `student_pct_correct` = (num_correct / total_problems) × 100
+   - `student_pct_correct` = (num_correct / total_problems) — **stored as fraction 0.0-1.0, NOT percentage 0-100**
    - `avg_response_time_ms` = mean of ms_first_response
 4. **Handle missing values**:
    - `ms_first_response`: Fill with median

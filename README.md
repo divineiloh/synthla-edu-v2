@@ -47,6 +47,15 @@ Download datasets and place in `data/raw/`:
 
 ### 3. Run
 
+> **⚠️ IMPORTANT: Quick Mode vs Full Mode**
+> 
+> **`--quick` mode is for smoke testing and pipeline validation only.** Metrics from quick mode are NOT representative and will show very poor realism (C2ST ≈ 1.0). This is expected behavior due to reduced training:
+> - CTGAN: 100 epochs (vs 300 full)
+> - TabDDPM: 300 iterations (vs 1200 full)
+> - Bootstrap: 100 resamples (vs 1000 full)
+>
+> **Always run WITHOUT `--quick` for evaluation or publication.**
+
 **Option A: Native Python**
 
 Full experimental matrix (2 datasets × 3 synthesizers):
@@ -58,7 +67,7 @@ python synthla_edu_v2.py \
   --out-dir runs
 ```
 
-**Quick mode (reduced compute):**
+**Quick mode (smoke testing only - NOT for evaluation):**
 ```bash
 python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --quick
 ```
@@ -161,6 +170,19 @@ Cross-dataset visualizations in `runs/figures/`:
 
 ## Key Metrics
 
+> **Note on C2ST and MIA Interpretation:**
+> 
+> **C2ST (Classifier Two-Sample Test)** measures how easily a classifier can distinguish synthetic from real data:
+> - `effective_auc = max(auc, 1-auc)` ensures the metric is in [0.5, 1.0]
+> - **0.5 = ideal** (indistinguishable; classifier performs at chance)
+> - **1.0 = worst** (perfectly distinguishable; synthetic is easily detected)
+> - **Lower is better** for realism
+>
+> **MIA (Membership Inference Attack)** measures privacy leakage:
+> - **0.5 = ideal** (no leakage; attacker performs at chance)
+> - **1.0 = worst** (total leakage; training records perfectly identified)
+> - **Lower is better** for privacy
+
 | Metric | Range | Interpretation |
 |--------|-------|----------------|
 | **Quality** (SDMetrics overall_score) | 0–1 (0–100% in figures) | Statistical similarity to real data (stored as 0–1; displayed as %; higher = better) |
@@ -172,7 +194,7 @@ Cross-dataset visualizations in `runs/figures/`:
 
 ### Example Results
 
-**Note**: Results below are from development runs using `--quick` mode. For publication-quality results, re-run with `--run-all` (full epochs/iterations) on your hardware.
+**⚠️ DISCLAIMER**: Results below are from `--quick` mode (smoke testing only). Quick mode produces poor realism metrics (C2ST ≈ 1.0) due to undertrained models. **These are NOT representative of synthesizer performance.** For publication-quality results, run without `--quick` flag.
 
 **OULAD (Gaussian Copula)**:
 - Quality: 76.3% | Utility (RF AUC): 0.83 | Realism: 0.67 (moderate) | Privacy: 0.50 (excellent)
