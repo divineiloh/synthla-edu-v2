@@ -372,25 +372,34 @@ class GaussianCopulaSynth:
     def __init__(self, **kwargs) -> None:
         self.params = kwargs
         self._model = None
+        self._column_mapping = {}  # Track any column value replacements
 
     def fit(self, df_train: pd.DataFrame) -> "GaussianCopulaSynth":
-        try:
-            from sdv.metadata import SingleTableMetadata  # type: ignore
-            from sdv.single_table import GaussianCopulaSynthesizer  # type: ignore
-            md = SingleTableMetadata()
-            md.detect_from_dataframe(df_train)
-            self._model = GaussianCopulaSynthesizer(md, **self.params)
-            self._model.fit(df_train)
-        except Exception:
-            from sdv.tabular import GaussianCopula  # type: ignore
-            self._model = GaussianCopula(**self.params)
-            self._model.fit(df_train)
+        from sdv.metadata import SingleTableMetadata  # type: ignore
+        from sdv.single_table import GaussianCopulaSynthesizer  # type: ignore
+        
+        # Fix problematic category values that SDV can't handle
+        df_fixed = df_train.copy()
+        for col in df_fixed.columns:
+            if pd.api.types.is_categorical_dtype(df_fixed[col]) or df_fixed[col].dtype == 'object':
+                # Replace '<=' and '>=' in category names (SDV's categorical transformer has a bug with these)
+                df_fixed[col] = df_fixed[col].astype(str).replace({'55<=': '55_plus', '0-35': '0_35', '35-55': '35_55'})
+        
+        md = SingleTableMetadata()
+        md.detect_from_dataframe(df_fixed)
+        self._model = GaussianCopulaSynthesizer(md, **self.params)
+        self._model.fit(df_fixed)
         return self
 
     def sample(self, n: int) -> pd.DataFrame:
         if self._model is None:
             raise RuntimeError("fit() must be called before sample().")
-        return self._model.sample(n)
+        synthetic = self._model.sample(n)
+        # Restore original category names
+        for col in synthetic.columns:
+            if synthetic[col].dtype == 'object' or pd.api.types.is_categorical_dtype(synthetic[col]):
+                synthetic[col] = synthetic[col].astype(str).replace({'55_plus': '55<=', '0_35': '0-35', '35_55': '35-55'})
+        return synthetic
 
 
 class CTGANSynth:
@@ -401,23 +410,31 @@ class CTGANSynth:
         self._model = None
 
     def fit(self, df_train: pd.DataFrame) -> "CTGANSynth":
-        try:
-            from sdv.metadata import SingleTableMetadata  # type: ignore
-            from sdv.single_table import CTGANSynthesizer  # type: ignore
-            md = SingleTableMetadata()
-            md.detect_from_dataframe(df_train)
-            self._model = CTGANSynthesizer(md, epochs=self.params.get("epochs", 300), batch_size=self.params.get("batch_size", 500))
-            self._model.fit(df_train)
-        except Exception:
-            from sdv.tabular import CTGAN  # type: ignore
-            self._model = CTGAN(epochs=self.params.get("epochs", 300), batch_size=self.params.get("batch_size", 500))
-            self._model.fit(df_train)
+        from sdv.metadata import SingleTableMetadata  # type: ignore
+        from sdv.single_table import CTGANSynthesizer  # type: ignore
+        
+        # Fix problematic category values that SDV can't handle
+        df_fixed = df_train.copy()
+        for col in df_fixed.columns:
+            if pd.api.types.is_categorical_dtype(df_fixed[col]) or df_fixed[col].dtype == 'object':
+                # Replace '<=' and '>=' in category names (SDV's categorical transformer has a bug with these)
+                df_fixed[col] = df_fixed[col].astype(str).replace({'55<=': '55_plus', '0-35': '0_35', '35-55': '35_55'})
+        
+        md = SingleTableMetadata()
+        md.detect_from_dataframe(df_fixed)
+        self._model = CTGANSynthesizer(md, epochs=self.params.get("epochs", 300), batch_size=self.params.get("batch_size", 500))
+        self._model.fit(df_fixed)
         return self
 
     def sample(self, n: int) -> pd.DataFrame:
         if self._model is None:
             raise RuntimeError("fit() must be called before sample().")
-        return self._model.sample(n)
+        synthetic = self._model.sample(n)
+        # Restore original category names
+        for col in synthetic.columns:
+            if synthetic[col].dtype == 'object' or pd.api.types.is_categorical_dtype(synthetic[col]):
+                synthetic[col] = synthetic[col].astype(str).replace({'55_plus': '55<=', '0_35': '0-35', '35_55': '35-55'})
+        return synthetic
 
 
 class TabDDPMSynth:

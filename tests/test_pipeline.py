@@ -39,7 +39,7 @@ class TestEndToEndPipeline:
         df_small = df.sample(n=500, random_state=42)
         
         # Train synthesizer
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         synth.fit(df_small)
         
         # Generate synthetic data
@@ -65,7 +65,7 @@ class TestEndToEndPipeline:
         train, test = train_test_split(df_small, test_size=0.3, random_state=42)
         
         # Generate synthetic
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         synth.fit(train)
         df_synth = synth.sample(n=len(train))
         
@@ -243,7 +243,7 @@ class TestErrorHandling:
         empty_df = pd.DataFrame()
         schema = {"categorical_cols": [], "numeric_cols": []}
         
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         with pytest.raises((ValueError, IndexError, KeyError)):
             synth.fit(empty_df)
 

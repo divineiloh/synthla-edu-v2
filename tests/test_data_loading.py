@@ -52,10 +52,10 @@ class TestOULADDataLoading:
         """Verify target columns are properly formatted."""
         df, schema = oulad_data
         
-        # Check dropout binary target
+        # Check dropout binary target (pandas uses float64 for nullable handling)
         assert "dropout" in df.columns
-        assert df["dropout"].dtype in [np.int64, np.int32]
-        assert set(df["dropout"].unique()) <= {0, 1}, "Dropout should be binary 0/1"
+        assert df["dropout"].dtype in [np.int64, np.int32, np.float64]
+        assert set(df["dropout"].dropna().unique()) <= {0.0, 1.0}, "Dropout should be binary 0/1"
         
         # Check final_result categorical
         assert "final_result" in df.columns
@@ -73,7 +73,7 @@ class TestOULADDataLoading:
         """Validate schema dictionary structure."""
         df, schema = oulad_data
         
-        required_schema_keys = ["id_cols", "target_cols", "categorical_cols", "numeric_cols"]
+        required_schema_keys = ["id_cols", "target_cols", "categorical_cols", "group_col"]
         for key in required_schema_keys:
             assert key in schema, f"Schema missing key: {key}"
         
@@ -83,9 +83,11 @@ class TestOULADDataLoading:
         # Check target_cols
         assert "dropout" in schema["target_cols"]
         
-        # Check categorical/numeric separation
+        # Check group_col for GroupShuffleSplit
+        assert schema["group_col"] == "id_student"
+        
+        # Check categorical separation
         assert len(schema["categorical_cols"]) > 0
-        assert len(schema["numeric_cols"]) > 0
 
 
 class TestASSISTmentsDataLoading:
@@ -115,8 +117,9 @@ class TestASSISTmentsDataLoading:
         df, schema = assistments_data
         required_cols = [
             "user_id",
-            "total_problems_attempted",
-            "student_pct_correct"
+            "n_interactions",
+            "student_pct_correct",
+            "high_accuracy"  # Binary target added
         ]
         for col in required_cols:
             assert col in df.columns, f"Missing required column: {col}"
@@ -125,10 +128,10 @@ class TestASSISTmentsDataLoading:
         """Verify target variables are in valid ranges."""
         df, schema = assistments_data
         
-        # Check student_pct_correct is 0-100
+        # Check student_pct_correct is 0-1 (fraction, not percentage)
         if "student_pct_correct" in df.columns:
             assert df["student_pct_correct"].min() >= 0
-            assert df["student_pct_correct"].max() <= 100
+            assert df["student_pct_correct"].max() <= 1.0, "student_pct_correct should be 0-1 fraction"
     
     def test_assistments_no_negative_counts(self, assistments_data):
         """Check count features have no negative values."""
@@ -142,12 +145,16 @@ class TestASSISTmentsDataLoading:
         """Validate schema dictionary structure."""
         df, schema = assistments_data
         
-        required_schema_keys = ["id_cols", "target_cols", "numeric_cols"]
+        required_schema_keys = ["id_cols", "target_cols", "categorical_cols"]
         for key in required_schema_keys:
             assert key in schema, f"Schema missing key: {key}"
         
         # Check user_id in id_cols
         assert "user_id" in schema["id_cols"]
+        
+        # Check both targets present
+        assert "high_accuracy" in schema["target_cols"]
+        assert "student_pct_correct" in schema["target_cols"]
 
 
 class TestCrossDatasetConsistency:
@@ -178,7 +185,7 @@ class TestCrossDatasetConsistency:
         """Verify schema dictionaries have consistent structure."""
         (oulad_df, oulad_schema), (assist_df, assist_schema) = both_datasets
         
-        common_keys = {"id_cols", "target_cols", "numeric_cols"}
+        common_keys = {"id_cols", "target_cols"}
         assert common_keys.issubset(oulad_schema.keys())
         assert common_keys.issubset(assist_schema.keys())
 

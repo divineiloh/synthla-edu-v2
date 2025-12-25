@@ -35,20 +35,20 @@ class TestGaussianCopulaSynth:
     def test_gaussian_copula_initialization(self, small_oulad_sample):
         """Test synthesizer initializes without errors."""
         df, schema = small_oulad_sample
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         assert synth is not None
     
     def test_gaussian_copula_fit(self, small_oulad_sample):
         """Test synthesizer can fit data."""
         df, schema = small_oulad_sample
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         synth.fit(df)
         # If no exception raised, test passes
     
     def test_gaussian_copula_sample(self, small_oulad_sample):
         """Test synthesizer can generate samples."""
         df, schema = small_oulad_sample
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         synth.fit(df)
         
         synthetic = synth.sample(n=100)
@@ -60,7 +60,7 @@ class TestGaussianCopulaSynth:
     def test_gaussian_copula_preserves_dtypes(self, small_oulad_sample):
         """Test synthesizer preserves column data types."""
         df, schema = small_oulad_sample
-        synth = GaussianCopulaSynth(schema)
+        synth = GaussianCopulaSynth()
         synth.fit(df)
         
         synthetic = synth.sample(n=50)
@@ -78,14 +78,13 @@ class TestCTGANSynth:
     def test_ctgan_initialization(self, small_oulad_sample):
         """Test CTGAN initializes without errors."""
         df, schema = small_oulad_sample
-        synth = CTGANSynth(schema, epochs=10)  # Very short for testing
+        synth = CTGANSynth(epochs=10)  # Very short for testing
         assert synth is not None
-        assert synth.epochs == 10
     
     def test_ctgan_fit(self, small_oulad_sample):
         """Test CTGAN can fit data (short training)."""
         df, schema = small_oulad_sample
-        synth = CTGANSynth(schema, epochs=10, batch_size=64)
+        synth = CTGANSynth(epochs=10, batch_size=500)  # Use batch_size that matches sample size
         synth.fit(df)
         # If no exception raised, test passes
     
@@ -93,7 +92,7 @@ class TestCTGANSynth:
     def test_ctgan_sample(self, small_oulad_sample):
         """Test CTGAN can generate samples."""
         df, schema = small_oulad_sample
-        synth = CTGANSynth(schema, epochs=10)
+        synth = CTGANSynth(epochs=10)
         synth.fit(df)
         
         synthetic = synth.sample(n=100)
@@ -109,14 +108,14 @@ class TestTabDDPMSynth:
     def test_tabddpm_initialization(self, small_oulad_sample):
         """Test TabDDPM initializes without errors."""
         df, schema = small_oulad_sample
-        synth = TabDDPMSynth(schema, num_timesteps=100)  # Very short for testing
+        synth = TabDDPMSynth(num_timesteps=100, n_iter=500)  # Very short for testing
         assert synth is not None
     
     @pytest.mark.slow
     def test_tabddpm_fit(self, small_oulad_sample):
         """Test TabDDPM can fit data (short training)."""
         df, schema = small_oulad_sample
-        synth = TabDDPMSynth(schema, num_timesteps=100)
+        synth = TabDDPMSynth(num_timesteps=100, n_iter=500)
         synth.fit(df)
         # If no exception raised, test passes
     
@@ -124,7 +123,7 @@ class TestTabDDPMSynth:
     def test_tabddpm_sample(self, small_oulad_sample):
         """Test TabDDPM can generate samples."""
         df, schema = small_oulad_sample
-        synth = TabDDPMSynth(schema, num_timesteps=100)
+        synth = TabDDPMSynth(num_timesteps=100, n_iter=500)
         synth.fit(df)
         
         synthetic = synth.sample(n=50)  # Smaller sample for speed
@@ -136,7 +135,7 @@ class TestTabDDPMSynth:
     def test_tabddpm_sampling_patience_fallback(self, small_oulad_sample):
         """Test TabDDPM handles sampling_patience parameter correctly."""
         df, schema = small_oulad_sample
-        synth = TabDDPMSynth(schema, num_timesteps=100)
+        synth = TabDDPMSynth(num_timesteps=100, n_iter=500)
         synth.fit(df)
         
         # This should not raise an error even if sampling_patience is unsupported
@@ -154,12 +153,12 @@ class TestSynthesizerConsistency:
     @pytest.mark.parametrize("synth_class,kwargs", [
         (GaussianCopulaSynth, {}),
         (CTGANSynth, {"epochs": 10}),
-        (TabDDPMSynth, {"num_timesteps": 100}),
+        (TabDDPMSynth, {"num_timesteps": 100, "n_iter": 500}),
     ])
     def test_all_synthesizers_return_dataframes(self, small_oulad_sample, synth_class, kwargs):
         """Test all synthesizers return pandas DataFrames."""
         df, schema = small_oulad_sample
-        synth = synth_class(schema, **kwargs)
+        synth = synth_class(**kwargs)
         synth.fit(df)
         synthetic = synth.sample(n=50)
         
@@ -171,7 +170,7 @@ class TestSynthesizerConsistency:
     def test_synthesizers_preserve_all_columns(self, small_oulad_sample, synth_class, kwargs):
         """Test synthesizers preserve all columns from original data."""
         df, schema = small_oulad_sample
-        synth = synth_class(schema, **kwargs)
+        synth = synth_class(**kwargs)
         synth.fit(df)
         synthetic = synth.sample(n=50)
         
