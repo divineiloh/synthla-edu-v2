@@ -636,7 +636,7 @@ def bootstrap_ci(metric_vector: np.ndarray, *, n_boot: int = 1000, alpha: float 
     boot = np.array(boot)
     return {"mean": float(np.mean(boot)), "ci_low": float(np.quantile(boot, alpha/2)), "ci_high": float(np.quantile(boot, 1 - alpha/2))}
 
-def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, class_target: str, reg_target: str) -> Dict[str, Any]:
+def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, class_target: str, reg_target: str, seed: int = 0) -> Dict[str, Any]:
     def split_X_y(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, np.ndarray]:
         X = df.drop(columns=[target])
         y = df[target].values
@@ -647,30 +647,29 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     X_real_te_cls, y_real_te_cls = split_X_y(real_test, class_target)
 
     spec_cls = infer_feature_spec(pd.concat([X_syn_cls, X_real_te_cls], axis=0))
-    pre_cls = make_preprocess_pipeline(spec_cls)
 
-    rf_cls = Pipeline([("pre", pre_cls), ("clf", RandomForestClassifier(n_estimators=300, random_state=0, n_jobs=-1))])
+    rf_cls = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", RandomForestClassifier(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_cls.fit(X_syn_cls, y_syn_cls)
     rf_prob = rf_cls.predict_proba(X_real_te_cls)[:, 1]
     rf_auc = float(roc_auc_score(y_real_te_cls, rf_prob))
     # Compute per-sample log loss for statistical tests
     rf_logloss_vec = -np.log(np.clip(rf_prob * y_real_te_cls + (1 - rf_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
     # Bootstrap CI for AUC: resample test set and recompute AUC
-    rng_rf = np.random.default_rng(0)
+    rng_rf = np.random.default_rng(seed)
     rf_auc_boots = []
     for _ in range(1000):
         idx = rng_rf.integers(0, len(y_real_te_cls), size=len(y_real_te_cls))
         rf_auc_boots.append(float(roc_auc_score(y_real_te_cls[idx], rf_prob[idx])))
     rf_auc_ci = {"mean": float(np.mean(rf_auc_boots)), "ci_low": float(np.quantile(rf_auc_boots, 0.025)), "ci_high": float(np.quantile(rf_auc_boots, 0.975))}
 
-    lr_cls = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=0))])
+    lr_cls = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=seed))])
     lr_cls.fit(X_syn_cls, y_syn_cls)
     lr_prob = lr_cls.predict_proba(X_real_te_cls)[:, 1]
     lr_auc = float(roc_auc_score(y_real_te_cls, lr_prob))
     # Compute per-sample log loss for statistical tests
     lr_logloss_vec = -np.log(np.clip(lr_prob * y_real_te_cls + (1 - lr_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
     # Bootstrap CI for AUC: resample test set and recompute AUC
-    rng_lr = np.random.default_rng(1)
+    rng_lr = np.random.default_rng(seed + 1)
     lr_auc_boots = []
     for _ in range(1000):
         idx = rng_lr.integers(0, len(y_real_te_cls), size=len(y_real_te_cls))
@@ -682,41 +681,40 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     X_real_te_reg, y_real_te_reg = split_X_y(real_test, reg_target)
 
     spec_reg = infer_feature_spec(pd.concat([X_syn_reg, X_real_te_reg], axis=0))
-    pre_reg = make_preprocess_pipeline(spec_reg)
 
-    rf_reg = Pipeline([("pre", pre_reg), ("reg", RandomForestRegressor(n_estimators=300, random_state=0, n_jobs=-1))])
+    rf_reg = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", RandomForestRegressor(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_reg.fit(X_syn_reg, y_syn_reg)
     rf_pred = rf_reg.predict(X_real_te_reg)
     rf_mae_vec = np.abs(rf_pred - y_real_te_reg)
     rf_mae = float(np.mean(rf_mae_vec))
-    rf_mae_ci = bootstrap_ci(rf_mae_vec)
+    rf_mae_ci = bootstrap_ci(rf_mae_vec, random_state=seed)
 
-    ridge_reg = Pipeline([("pre", pre_reg), ("reg", Ridge(alpha=1.0))])
+    ridge_reg = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", Ridge(alpha=1.0))])
     ridge_reg.fit(X_syn_reg, y_syn_reg)
     ridge_pred = ridge_reg.predict(X_real_te_reg)
     ridge_mae_vec = np.abs(ridge_pred - y_real_te_reg)
     ridge_mae = float(np.mean(ridge_mae_vec))
-    ridge_mae_ci = bootstrap_ci(ridge_mae_vec)
+    ridge_mae_ci = bootstrap_ci(ridge_mae_vec, random_state=seed)
 
     # TRTR ceiling: train on real_train, test on real_test
     X_real_tr_cls, y_real_tr_cls = split_X_y(real_train, class_target)
-    rf_trtr = Pipeline([("pre", pre_cls), ("clf", RandomForestClassifier(n_estimators=300, random_state=0, n_jobs=-1))])
+    rf_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", RandomForestClassifier(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     rf_trtr_prob = rf_trtr.predict_proba(X_real_te_cls)[:, 1]
     rf_trtr_auc = float(roc_auc_score(y_real_te_cls, rf_trtr_prob))
 
-    lr_trtr = Pipeline([("pre", pre_cls), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=0))])
+    lr_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=seed))])
     lr_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     lr_trtr_prob = lr_trtr.predict_proba(X_real_te_cls)[:, 1]
     lr_trtr_auc = float(roc_auc_score(y_real_te_cls, lr_trtr_prob))
 
     X_real_tr_reg, y_real_tr_reg = split_X_y(real_train, reg_target)
-    rf_reg_trtr = Pipeline([("pre", pre_reg), ("reg", RandomForestRegressor(n_estimators=300, random_state=0, n_jobs=-1))])
+    rf_reg_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", RandomForestRegressor(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_reg_trtr.fit(X_real_tr_reg, y_real_tr_reg)
     rf_trtr_pred = rf_reg_trtr.predict(X_real_te_reg)
     rf_trtr_mae = float(np.mean(np.abs(rf_trtr_pred - y_real_te_reg)))
 
-    ridge_reg_trtr = Pipeline([("pre", pre_reg), ("reg", Ridge(alpha=1.0))])
+    ridge_reg_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", Ridge(alpha=1.0))])
     ridge_reg_trtr.fit(X_real_tr_reg, y_real_tr_reg)
     ridge_trtr_pred = ridge_reg_trtr.predict(X_real_te_reg)
     ridge_trtr_mae = float(np.mean(np.abs(ridge_trtr_pred - y_real_te_reg)))
@@ -2224,7 +2222,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
 
             print(f"  → Running evaluations...")
             print(f"    • TSTR Utility (classification + regression)...")
-            util = tstr_utility(train_df, test_df, syn, class_target=class_target, reg_target=reg_target)
+            util = tstr_utility(train_df, test_df, syn, class_target=class_target, reg_target=reg_target, seed=seed)
             print(f"    • SDMetrics Quality Report...")
             qual = sdmetrics_quality(test_df, syn)
             print(f"    • C2ST Realism Test...")
