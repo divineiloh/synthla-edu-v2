@@ -372,11 +372,20 @@ class GaussianCopulaSynth:
     def __init__(self, **kwargs) -> None:
         self.params = kwargs
         self._model = None
-        self._column_mapping = {}  # Track any column value replacements
+        self._categorical_categories: Dict[str, List[str]] = {}
 
     def fit(self, df_train: pd.DataFrame) -> "GaussianCopulaSynth":
         from sdv.metadata import SingleTableMetadata  # type: ignore
         from sdv.single_table import GaussianCopulaSynthesizer  # type: ignore
+
+        # Remember which columns were categorical so we can restore dtype consistency
+        self._categorical_categories = {}
+        for col in df_train.columns:
+            if isinstance(df_train[col].dtype, pd.CategoricalDtype):
+                try:
+                    self._categorical_categories[col] = [str(v) for v in df_train[col].cat.categories]
+                except Exception:
+                    pass
         
         # WORKAROUND: SDV 1.0+ categorical transformer bug with special characters
         # Issue: RDT's FrequencyEncoder.map_labels fails on category values containing '<=' or '>='
@@ -386,7 +395,7 @@ class GaussianCopulaSynth:
         # Tested: Correctly restores original values (e.g., '55<=', '0-35', '35-55')
         df_fixed = df_train.copy()
         for col in df_fixed.columns:
-            if pd.api.types.is_categorical_dtype(df_fixed[col]) or df_fixed[col].dtype == 'object':
+            if isinstance(df_fixed[col].dtype, pd.CategoricalDtype) or df_fixed[col].dtype == 'object':
                 df_fixed[col] = df_fixed[col].astype(str).replace({'55<=': '55_plus', '0-35': '0_35', '35-55': '35_55'})
         
         md = SingleTableMetadata()
@@ -401,8 +410,18 @@ class GaussianCopulaSynth:
         synthetic = self._model.sample(n)
         # Restore original category names
         for col in synthetic.columns:
-            if synthetic[col].dtype == 'object' or pd.api.types.is_categorical_dtype(synthetic[col]):
+            if synthetic[col].dtype == 'object' or isinstance(synthetic[col].dtype, pd.CategoricalDtype):
                 synthetic[col] = synthetic[col].astype(str).replace({'55_plus': '55<=', '0_35': '0-35', '35_55': '35-55'})
+
+        # Restore pandas categorical dtype where appropriate (downstream consumers may rely on it)
+        for col, base_categories in self._categorical_categories.items():
+            if col not in synthetic.columns:
+                continue
+            values = synthetic[col].astype(str)
+            base_set = set(base_categories)
+            extra = sorted(set(values.unique()) - base_set)
+            categories = base_categories + extra
+            synthetic[col] = pd.Categorical(values, categories=categories)
         return synthetic
 
 
@@ -412,15 +431,25 @@ class CTGANSynth:
     def __init__(self, **kwargs) -> None:
         self.params = {k: v for k, v in kwargs.items() if k in ["epochs", "batch_size", "generator_dim", "discriminator_dim"]}
         self._model = None
+        self._categorical_categories: Dict[str, List[str]] = {}
 
     def fit(self, df_train: pd.DataFrame) -> "CTGANSynth":
         from sdv.metadata import SingleTableMetadata  # type: ignore
         from sdv.single_table import CTGANSynthesizer  # type: ignore
+
+        # Remember which columns were categorical so we can restore dtype consistency
+        self._categorical_categories = {}
+        for col in df_train.columns:
+            if isinstance(df_train[col].dtype, pd.CategoricalDtype):
+                try:
+                    self._categorical_categories[col] = [str(v) for v in df_train[col].cat.categories]
+                except Exception:
+                    pass
         
         # Fix problematic category values that SDV can't handle
         df_fixed = df_train.copy()
         for col in df_fixed.columns:
-            if pd.api.types.is_categorical_dtype(df_fixed[col]) or df_fixed[col].dtype == 'object':
+            if isinstance(df_fixed[col].dtype, pd.CategoricalDtype) or df_fixed[col].dtype == 'object':
                 # Replace '<=' and '>=' in category names (SDV's categorical transformer has a bug with these)
                 df_fixed[col] = df_fixed[col].astype(str).replace({'55<=': '55_plus', '0-35': '0_35', '35-55': '35_55'})
         
@@ -436,8 +465,18 @@ class CTGANSynth:
         synthetic = self._model.sample(n)
         # Restore original category names
         for col in synthetic.columns:
-            if synthetic[col].dtype == 'object' or pd.api.types.is_categorical_dtype(synthetic[col]):
+            if synthetic[col].dtype == 'object' or isinstance(synthetic[col].dtype, pd.CategoricalDtype):
                 synthetic[col] = synthetic[col].astype(str).replace({'55_plus': '55<=', '0_35': '0-35', '35_55': '35-55'})
+
+        # Restore pandas categorical dtype where appropriate
+        for col, base_categories in self._categorical_categories.items():
+            if col not in synthetic.columns:
+                continue
+            values = synthetic[col].astype(str)
+            base_set = set(base_categories)
+            extra = sorted(set(values.unique()) - base_set)
+            categories = base_categories + extra
+            synthetic[col] = pd.Categorical(values, categories=categories)
         return synthetic
 
 

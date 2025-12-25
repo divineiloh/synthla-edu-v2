@@ -49,7 +49,7 @@ Download datasets and place in `data/raw/`:
 
 > **⚠️ IMPORTANT: Quick Mode vs Full Mode**
 > 
-> **`--quick` mode is for smoke testing and pipeline validation only.** Metrics from quick mode are NOT representative and will show very poor realism (C2ST ≈ 1.0). This is expected behavior due to reduced training:
+> **`--quick` mode is for smoke testing and pipeline validation only.** Metrics from quick mode are NOT representative and may show very poor realism (often C2ST close to 1.0). Note that some model+dataset combinations can also yield poor realism in full mode; do not assume `--quick` is the only reason.
 > - CTGAN: 100 epochs (vs 300 full)
 > - TabDDPM: 300 iterations (vs 1200 full)
 > - Bootstrap: 100 resamples (vs 1000 full)
@@ -340,6 +340,7 @@ The single-file `synthla_edu_v2.py` is modular:
 ## Known Limitations & Future Work
 
 - **TabDDPM CSV parsing**: Occasional issues on large OULAD splits; use `engine='python'` fallback if needed
+- **TabDDPM stability preprocessing**: The TabDDPM path fills missing values and clips numeric outliers (0.5th–99.5th percentiles) before training to reduce NaNs/instability; this can slightly alter marginal distributions.
 - **Compute**: Runtime varies by hardware; CTGAN/TabDDPM benefit from GPU acceleration. Use `--quick` for faster validation runs.
 - **XGBoost MIA attacker**: Optional; requires `pip install xgboost` for multi-attacker MIA
 - **Extensibility**: Easy to add new datasets, synthesizers, or attackers by following the modular structure

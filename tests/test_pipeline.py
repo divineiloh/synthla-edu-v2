@@ -22,6 +22,91 @@ from synthla_edu_v2 import (
 )
 
 
+def _make_minimal_cross_dataset_viz_inputs() -> tuple[dict, dict, dict]:
+    """Create minimal, valid inputs for create_cross_dataset_visualizations.
+
+    The plotting function expects a fairly rich nested results structure.
+    This helper provides just enough shape/keys to generate figures quickly.
+    """
+
+    def synth_result(*, overall_score: float, eff_auc: float, mia_eff_auc: float, rf_auc: float, ridge_mae: float) -> dict:
+        return {
+            "sdmetrics": {"overall_score": overall_score},
+            "c2st": {"effective_auc": eff_auc},
+            "mia": {
+                "worst_case_effective_auc": mia_eff_auc,
+                "attackers": {
+                    "logistic_regression": {"effective_auc": mia_eff_auc},
+                    "random_forest": {"effective_auc": min(1.0, mia_eff_auc + 0.02)},
+                },
+            },
+            "utility": {
+                "classification": {
+                    "trtr_rf_auc": 0.80,
+                    "rf_auc": rf_auc,
+                    "rf_auc_ci": {"ci_low": max(0.5, rf_auc - 0.02), "ci_high": min(1.0, rf_auc + 0.02)},
+                },
+                "regression": {
+                    "trtr_ridge_mae": 12.0,
+                    "ridge_mae": ridge_mae,
+                    "ridge_mae_ci": {"ci_low": max(0.0, ridge_mae - 1.0), "ci_high": ridge_mae + 1.0},
+                },
+            },
+            "timing": {"fit_seconds": 1.0, "sample_seconds": 1.0},
+        }
+
+    all_results = {
+        "oulad": {
+            "dataset": "oulad",
+            "synthesizers": {
+                "gaussian_copula": synth_result(overall_score=0.82, eff_auc=0.62, mia_eff_auc=0.53, rf_auc=0.78, ridge_mae=11.0),
+                "ctgan": synth_result(overall_score=0.78, eff_auc=0.66, mia_eff_auc=0.55, rf_auc=0.76, ridge_mae=11.5),
+                "tabddpm": synth_result(overall_score=0.80, eff_auc=0.64, mia_eff_auc=0.54, rf_auc=0.77, ridge_mae=11.2),
+            },
+        },
+        "assistments": {
+            "dataset": "assistments",
+            "synthesizers": {
+                "gaussian_copula": synth_result(overall_score=0.81, eff_auc=0.63, mia_eff_auc=0.52, rf_auc=0.74, ridge_mae=10.5),
+                "ctgan": synth_result(overall_score=0.77, eff_auc=0.68, mia_eff_auc=0.56, rf_auc=0.73, ridge_mae=10.9),
+                "tabddpm": synth_result(overall_score=0.79, eff_auc=0.65, mia_eff_auc=0.55, rf_auc=0.735, ridge_mae=10.7),
+            },
+        },
+    }
+
+    base_train = pd.DataFrame(
+        {
+            "num_feature_1": list(range(100)),
+            "num_feature_2": [x * 2 for x in range(100)],
+            "cat_feature": pd.Categorical(["a", "b"] * 50),
+        }
+    )
+
+    all_train_data = {"oulad": base_train.copy(), "assistments": base_train.copy()}
+
+    def synth_df(seed: int) -> pd.DataFrame:
+        # Keep the same numeric columns so correlation/distribution plots can run.
+        df = base_train.copy()
+        df["num_feature_1"] = (df["num_feature_1"] + seed) % 100
+        df["num_feature_2"] = (df["num_feature_2"] + 3 * seed) % 200
+        return df
+
+    all_synthetic_data = {
+        "oulad": {
+            "gaussian_copula": synth_df(1),
+            "ctgan": synth_df(2),
+            "tabddpm": synth_df(3),
+        },
+        "assistments": {
+            "gaussian_copula": synth_df(4),
+            "ctgan": synth_df(5),
+            "tabddpm": synth_df(6),
+        },
+    }
+
+    return all_results, all_train_data, all_synthetic_data
+
+
 @pytest.fixture(scope="module")
 def temp_output_dir(tmp_path_factory):
     """Create temporary output directory for test runs."""
@@ -138,80 +223,34 @@ class TestVisualizationGeneration:
     @pytest.mark.slow
     def test_cross_dataset_visualizations(self, temp_output_dir):
         """Test cross-dataset visualization generation."""
-        # Create mock results for both datasets
-        results_oulad = {
-            "dataset": "oulad",
-            "synthesizers": {
-                "gaussian_copula": {
-                    "sdmetrics": {
-                        "Column Shapes": 0.85,
-                        "Column Pair Trends": 0.80
-                    },
-                    "c2st": {
-                        "effective_auc_train": 0.15,
-                        "effective_auc_test": 0.18,
-                        "ci_lower_train": 0.12,
-                        "ci_upper_train": 0.18
-                    },
-                    "mia": {
-                        "worst_case_auc": 0.52,
-                        "ci_lower": 0.48,
-                        "ci_upper": 0.56
-                    },
-                    "tstr": {
-                        "r2_synthetic": 0.45,
-                        "r2_real": 0.50
-                    }
-                }
-            }
-        }
-        
-        results_assist = {
-            "dataset": "assistments",
-            "synthesizers": {
-                "gaussian_copula": {
-                    "sdmetrics": {
-                        "Column Shapes": 0.82,
-                        "Column Pair Trends": 0.78
-                    },
-                    "c2st": {
-                        "effective_auc_train": 0.20,
-                        "effective_auc_test": 0.22,
-                        "ci_lower_train": 0.17,
-                        "ci_upper_train": 0.23
-                    },
-                    "mia": {
-                        "worst_case_auc": 0.54,
-                        "ci_lower": 0.50,
-                        "ci_upper": 0.58
-                    },
-                    "tstr": {
-                        "r2_synthetic": 0.42,
-                        "r2_real": 0.48
-                    }
-                }
-            }
-        }
-        
-        # Test visualization function doesn't crash
-        # Note: create_cross_dataset_visualizations requires all_synthetic_data arg
-        # For this test, we just verify the function can be called with minimal mocks
-        try:
-            # Skip this test since it requires full data structures
-            pytest.skip("Requires full all_synthetic_data structure - integration test only")
-        except Exception as e:
-            pytest.fail(f"Visualization generation failed: {e}")
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+
+        figures_dir = temp_output_dir / "figures"
+        all_results, all_train_data, all_synthetic_data = _make_minimal_cross_dataset_viz_inputs()
+
+        paths = create_cross_dataset_visualizations(
+            figures_dir,
+            all_results,
+            all_train_data,
+            all_synthetic_data,
+        )
+
+        assert isinstance(paths, list)
+        assert len(paths) >= 1
+        assert all(p.exists() for p in paths)
     
     def test_visualization_files_created(self, temp_output_dir):
         """Test that visualization files are created."""
-        # After running create_cross_dataset_visualizations
-        # Check that PNG files exist
-        figures_dir = temp_output_dir
-        
-        # This test assumes visualizations were created in previous test
-        # In real scenario, would explicitly create them here
-        # For now, just check directory structure
-        assert figures_dir.exists()
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+
+        figures_dir = temp_output_dir / "figures_files_created"
+        all_results, all_train_data, all_synthetic_data = _make_minimal_cross_dataset_viz_inputs()
+        create_cross_dataset_visualizations(figures_dir, all_results, all_train_data, all_synthetic_data)
+
+        pngs = list(figures_dir.glob("*.png"))
+        assert len(pngs) >= 1
 
 
 class TestErrorHandling:
