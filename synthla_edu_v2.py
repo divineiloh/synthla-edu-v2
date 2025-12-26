@@ -241,7 +241,8 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
 
     keys = ["code_module", "code_presentation", "id_student"]
 
-    info["dropout"] = (info["final_result"].astype(str).str.lower() == "withdrawn").astype(int)
+    # Target: 1 = Fail/Withdrawn, 0 = Pass/Distinction
+    info["dropout"] = info["final_result"].astype(str).str.lower().isin(["withdrawn", "fail"]).astype(int)
 
     reg_feat = (
         reg.groupby(keys, as_index=False)
@@ -2127,12 +2128,9 @@ def run_single(
     remove_if_exists(synthetic_path)
     synthetic_data.to_parquet(synthetic_path, index=False)
 
-    # Optionally aggregate ASSISTments to student-level for utility-like evaluation
+    # ASSISTments is already aggregated to student-level by build_dataset
     test_eval = test_df
     synthetic_eval = synthetic_data
-    if aggregate_assistments and dataset.lower() == "assistments" and "n_interactions" not in test_eval.columns:
-        test_eval = aggregate_assistments_student_level(test_eval)
-        synthetic_eval = aggregate_assistments_student_level(synthetic_eval)
 
     print("Step 5/7: Running evaluations...")
     print("→ SDMetrics Quality Report...")
