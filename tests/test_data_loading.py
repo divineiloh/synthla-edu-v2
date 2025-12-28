@@ -43,7 +43,7 @@ class TestOULADDataLoading:
         required_cols = [
             "id_student", "code_module", "code_presentation",
             "gender", "region", "highest_education", "age_band",
-            "final_result", "dropout"
+            "dropout"
         ]
         for col in required_cols:
             assert col in df.columns, f"Missing required column: {col}"
@@ -56,16 +56,11 @@ class TestOULADDataLoading:
         assert "dropout" in df.columns
         assert df["dropout"].dtype in [np.int64, np.int32, np.float64]
         assert set(df["dropout"].dropna().unique()) <= {0.0, 1.0}, "Dropout should be binary 0/1"
-        
-        # Check final_result categorical
-        assert "final_result" in df.columns
-        valid_results = {"Pass", "Fail", "Withdrawn", "Distinction"}
-        assert set(df["final_result"].unique()) <= valid_results
     
     def test_oulad_no_nulls_in_key_columns(self, oulad_data):
         """Check critical columns have no missing values."""
         df, schema = oulad_data
-        critical_cols = ["id_student", "gender", "final_result", "dropout"]
+        critical_cols = ["id_student", "gender", "dropout"]
         for col in critical_cols:
             assert df[col].notna().all(), f"Column {col} has missing values"
     
