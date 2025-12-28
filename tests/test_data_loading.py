@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from synthla_edu_v2 import build_dataset
 
 
@@ -22,6 +23,8 @@ class TestOULADDataLoading:
     @pytest.fixture(scope="class")
     def oulad_data(self):
         """Load OULAD dataset once for all tests."""
+        if not (Path("data/raw/oulad/studentInfo.csv").exists() or Path("data/raw/studentInfo.csv").exists()):
+             pytest.skip("OULAD data not found")
         df, schema = build_dataset("oulad", "data/raw")
         return df, schema
     
@@ -93,6 +96,8 @@ class TestASSISTmentsDataLoading:
     @pytest.fixture(scope="class")
     def assistments_data(self):
         """Load ASSISTments dataset once for all tests."""
+        if not (Path("data/raw/assistments/assistments_2009_2010.csv").exists() or Path("data/raw/assistments_2009_2010.csv").exists()):
+             pytest.skip("ASSISTments data not found")
         df, schema = build_dataset("assistments", "data/raw")
         return df, schema
     
@@ -154,12 +159,19 @@ class TestASSISTmentsDataLoading:
         assert "student_pct_correct" in schema["target_cols"]
 
 
+@pytest.mark.requires_data
 class TestCrossDatasetConsistency:
     """Test consistency between OULAD and ASSISTments datasets."""
     
     @pytest.fixture(scope="class")
     def both_datasets(self):
         """Load both datasets."""
+        oulad_exists = (Path("data/raw/oulad/studentInfo.csv").exists() or Path("data/raw/studentInfo.csv").exists())
+        assist_exists = (Path("data/raw/assistments/assistments_2009_2010.csv").exists() or Path("data/raw/assistments_2009_2010.csv").exists())
+        
+        if not (oulad_exists and assist_exists):
+             pytest.skip("One or both datasets not found")
+
         oulad_df, oulad_schema = build_dataset("oulad", "data/raw")
         assist_df, assist_schema = build_dataset("assistments", "data/raw")
         return (oulad_df, oulad_schema), (assist_df, assist_schema)
