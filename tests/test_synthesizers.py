@@ -22,11 +22,30 @@ from synthla_edu_v2 import (
 
 @pytest.fixture(scope="module")
 def small_oulad_sample():
-    """Load a small sample of OULAD for fast testing."""
-    df, schema = build_dataset("oulad", "data/raw")
-    # Use small sample for speed
-    sample = df.sample(n=min(500, len(df)), random_state=42)
-    return sample, schema
+    """Create a synthetic OULAD-like sample for testing."""
+    # Create synthetic dataframe
+    df = pd.DataFrame({
+        "id_student": range(100),
+        "code_module": ["AAA", "BBB"] * 50,
+        "gender": ["M", "F"] * 50,
+        "final_grade": np.random.rand(100) * 100,
+        "dropout": np.random.randint(0, 2, 100),
+        # Add some numeric and categorical columns
+        "num_col": np.random.randn(100),
+        "cat_col": ["A", "B", "C", "D"] * 25
+    })
+    
+    # Convert to categorical
+    for col in ["code_module", "gender", "cat_col"]:
+        df[col] = df[col].astype("category")
+        
+    schema = {
+        "id_cols": ["id_student"],
+        "target_cols": ["dropout", "final_grade"],
+        "categorical_cols": ["code_module", "gender", "cat_col"],
+        "group_col": "id_student"
+    }
+    return df, schema
 
 
 class TestGaussianCopulaSynth:

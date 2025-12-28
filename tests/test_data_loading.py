@@ -15,6 +15,7 @@ import numpy as np
 from synthla_edu_v2 import build_dataset
 
 
+@pytest.mark.requires_data
 class TestOULADDataLoading:
     """Test suite for OULAD dataset loading and validation."""
     
@@ -85,6 +86,7 @@ class TestOULADDataLoading:
         assert len(schema["categorical_cols"]) > 0
 
 
+@pytest.mark.requires_data
 class TestASSISTmentsDataLoading:
     """Test suite for ASSISTments dataset loading and validation."""
     

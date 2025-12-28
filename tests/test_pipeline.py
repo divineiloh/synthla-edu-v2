@@ -117,6 +117,7 @@ class TestEndToEndPipeline:
     """Test full pipeline execution."""
     
     @pytest.mark.slow
+    @pytest.mark.requires_data
     def test_minimal_pipeline_oulad(self, temp_output_dir):
         """Test minimal pipeline on OULAD with Gaussian Copula."""
         # Load data
@@ -139,6 +140,7 @@ class TestEndToEndPipeline:
         assert 0.0 <= quality_results["overall_score"] <= 1.0
     
     @pytest.mark.slow
+    @pytest.mark.requires_data
     def test_c2st_evaluation(self, temp_output_dir):
         """Test C2ST privacy evaluation."""
         # Load small sample
