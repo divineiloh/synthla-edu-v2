@@ -19,6 +19,13 @@ from synthla_edu_v2 import (
     TabDDPMSynth
 )
 
+# Check if torch has RMSNorm (added in PyTorch 2.4+)
+try:
+    import torch.nn
+    TORCH_HAS_RMSNORM = hasattr(torch.nn, 'RMSNorm')
+except ImportError:
+    TORCH_HAS_RMSNORM = False
+
 
 @pytest.fixture(scope="module")
 def small_oulad_sample():
@@ -121,6 +128,7 @@ class TestCTGANSynth:
         assert set(synthetic.columns) == set(df.columns)
 
 
+@pytest.mark.skipif(not TORCH_HAS_RMSNORM, reason="TabDDPM requires PyTorch 2.4+ with RMSNorm support")
 class TestTabDDPMSynth:
     """Test TabDDPMSynth diffusion model synthesizer."""
     
@@ -172,7 +180,11 @@ class TestSynthesizerConsistency:
     @pytest.mark.parametrize("synth_class,kwargs", [
         (GaussianCopulaSynth, {}),
         (CTGANSynth, {"epochs": 10}),
-        (TabDDPMSynth, {"num_timesteps": 100, "n_iter": 500}),
+        pytest.param(
+            TabDDPMSynth, 
+            {"num_timesteps": 100, "n_iter": 500},
+            marks=pytest.mark.skipif(not TORCH_HAS_RMSNORM, reason="TabDDPM requires PyTorch 2.4+")
+        ),
     ])
     def test_all_synthesizers_return_dataframes(self, small_oulad_sample, synth_class, kwargs):
         """Test all synthesizers return pandas DataFrames."""
