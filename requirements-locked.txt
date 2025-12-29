@@ -5,6 +5,9 @@ PyYAML==6.0.3
 pyarrow==22.0.0
 matplotlib==3.8.0
 
+# Testing
+pytest==9.0.2
+
 # Synthesizers (compatible versions)
 sdv==1.9.0
 sdmetrics==0.13.0
