@@ -299,6 +299,11 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
     # Drop the source of the target to prevent leakage
     if "final_result" in df.columns:
         df.drop(columns=["final_result"], inplace=True)
+    
+    # Drop intermediate grade calculation columns to prevent regression target leakage
+    # (final_grade = weighted_score_sum / total_weight is deterministic)
+    leakage_cols = ["weighted_score_sum", "total_weight"]
+    df.drop(columns=[c for c in leakage_cols if c in df.columns], inplace=True)
 
     cat_cols = [
         "code_module",
@@ -717,14 +722,17 @@ def bootstrap_ci(metric_vector: np.ndarray, *, n_boot: int = 1000, alpha: float 
     return {"mean": float(np.mean(boot)), "ci_low": float(np.quantile(boot, alpha/2)), "ci_high": float(np.quantile(boot, 1 - alpha/2))}
 
 def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, class_target: str, reg_target: str, seed: int = 0) -> Dict[str, Any]:
-    def split_X_y(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, np.ndarray]:
-        X = df.drop(columns=[target])
+    def split_X_y(df: pd.DataFrame, target: str, all_targets: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
+        # Drop ALL target columns to prevent cross-target leakage
+        drop_cols = [c for c in all_targets if c in df.columns]
+        X = df.drop(columns=drop_cols)
         y = df[target].values
         return X, y
 
     # Classification: RF + LR, train on synthetic, test on real
-    X_syn_cls, y_syn_cls = split_X_y(synthetic_train, class_target)
-    X_real_te_cls, y_real_te_cls = split_X_y(real_test, class_target)
+    all_targets = [class_target, reg_target]
+    X_syn_cls, y_syn_cls = split_X_y(synthetic_train, class_target, all_targets)
+    X_real_te_cls, y_real_te_cls = split_X_y(real_test, class_target, all_targets)
 
     spec_cls = infer_feature_spec(pd.concat([X_syn_cls, X_real_te_cls], axis=0))
 
@@ -757,8 +765,8 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     lr_auc_ci = {"mean": float(np.mean(lr_auc_boots)), "ci_low": float(np.quantile(lr_auc_boots, 0.025)), "ci_high": float(np.quantile(lr_auc_boots, 0.975))}
 
     # Regression: RFReg + Ridge, train on synthetic, test on real
-    X_syn_reg, y_syn_reg = split_X_y(synthetic_train, reg_target)
-    X_real_te_reg, y_real_te_reg = split_X_y(real_test, reg_target)
+    X_syn_reg, y_syn_reg = split_X_y(synthetic_train, reg_target, all_targets)
+    X_real_te_reg, y_real_te_reg = split_X_y(real_test, reg_target, all_targets)
 
     spec_reg = infer_feature_spec(pd.concat([X_syn_reg, X_real_te_reg], axis=0))
 
@@ -777,7 +785,7 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     ridge_mae_ci = bootstrap_ci(ridge_mae_vec, random_state=seed)
 
     # TRTR ceiling: train on real_train, test on real_test
-    X_real_tr_cls, y_real_tr_cls = split_X_y(real_train, class_target)
+    X_real_tr_cls, y_real_tr_cls = split_X_y(real_train, class_target, all_targets)
     rf_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", RandomForestClassifier(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     rf_trtr_prob = rf_trtr.predict_proba(X_real_te_cls)[:, 1]
@@ -788,7 +796,7 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     lr_trtr_prob = lr_trtr.predict_proba(X_real_te_cls)[:, 1]
     lr_trtr_auc = float(roc_auc_score(y_real_te_cls, lr_trtr_prob))
 
-    X_real_tr_reg, y_real_tr_reg = split_X_y(real_train, reg_target)
+    X_real_tr_reg, y_real_tr_reg = split_X_y(real_train, reg_target, all_targets)
     rf_reg_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", RandomForestRegressor(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_reg_trtr.fit(X_real_tr_reg, y_real_tr_reg)
     rf_trtr_pred = rf_reg_trtr.predict(X_real_te_reg)
@@ -873,7 +881,7 @@ def plot_main_results(out_dir: Path) -> Path:
 
     out_png = out_dir / "metrics_summary.png"
     try:
-        fig.savefig(str(out_png), dpi=300)
+        fig.savefig(str(out_png), dpi=300, bbox_inches='tight')
     finally:
         plt.close(fig)
     return out_png
@@ -950,7 +958,7 @@ def plot_model_comparison(dataset_dir: str | Path) -> Path:
 
     out_png = dataset_dir / "model_comparison.png"
     try:
-        fig.savefig(str(out_png), dpi=150)
+        fig.savefig(str(out_png), dpi=300, bbox_inches='tight')
     finally:
         plt.close(fig)
     return out_png
@@ -1837,12 +1845,14 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     
     figures_dir = ensure_dir(base_out / "figures")
     
-    # Clean previous figures
+    # Clean previous figures to ensure consistent numbering (fig1-fig11)
     print("Cleaning previous figures...")
     remove_glob(figures_dir, "*.png")
     print("[OK] Cleanup complete\n")
     
-    print("Creating 11 publication-ready cross-dataset comparison figures...")
+    print("Creating 11 gold-standard cross-dataset comparison figures (fig1-fig11)...")
+    print("  Note: Generates fig1-fig11 only. Stale fig9_computational_efficiency.png,")
+    print("        fig10_per_attacker_privacy.png, fig12_correlation_matrices.png will be removed.")
     saved_figures = create_cross_dataset_visualizations(
         figures_dir, 
         all_dataset_results, 
