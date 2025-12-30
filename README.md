@@ -20,8 +20,8 @@ Single-file Python benchmark for evaluating synthetic data generators on educati
 
 - **Datasets**: OULAD (student-level) and ASSISTments (student-level aggregated)
 - **Synthesizers**: Gaussian Copula (SDV), CTGAN (SDV), TabDDPM (Synthcity)
-- **Evaluation**: Quality (SDMetrics), Utility (TSTR/TRTR), Realism (C2ST), Privacy (Multi-attacker MIA), Statistical rigor (Paired permutation tests)
-- **Visualizations**: 12 publication-quality figures (300 DPI, color-blind friendly)
+- **Evaluation**: Quality (SDMetrics), Utility (TSTR/TRTR), Realism (C2ST with ID exclusion), Privacy (Multi-attacker MIA), Statistical rigor (Paired permutation tests)
+- **Visualizations**: 11 publication-quality figures (300 DPI, color-blind friendly)
 
 ## Quick Start
 
@@ -119,31 +119,30 @@ python synthla_edu_v2.py \
 cat runs/oulad/results.json
 cat runs/assistments/results.json
 
-# View 12 cross-dataset comparison visualizations
+# View 11 cross-dataset comparison visualizations
 ls runs/figures/fig*_*.png
 ```
 
 ## Publication Visualizations
 
-SYNTHLA-EDU V2 automatically generates **12 gold-standard cross-dataset comparison figures** (300 DPI, color-blind friendly) after both datasets complete:
+SYNTHLA-EDU V2 automatically generates **11 publication-quality cross-dataset comparison figures** (300 DPI, color-blind friendly) after both datasets complete:
 
-### Cross-Dataset Comparisons (10 figures)
-1. **Classification Utility** - OULAD vs ASSISTments side-by-side comparison
-2. **Regression Utility** - Cross-dataset MAE comparison
+### Core Evaluation Figures (8 figures)
+1. **Classification Utility** - OULAD vs ASSISTments dropout/correctness prediction
+2. **Regression Utility** - Cross-dataset MAE comparison for grade prediction
 3. **Data Quality** - SDMetrics scores across both datasets
-4. **Privacy (MIA)** - Cross-dataset privacy preservation
+4. **Privacy (MIA)** - Worst-case membership inference attack comparison
 5. **Performance Heatmap** - All metrics × datasets × synthesizers grid
-6. **Radar Chart** - Multi-dimensional profiles for both datasets
-7. **Classification CI** - Confidence intervals for both datasets
-8. **Regression CI** - MAE confidence intervals comparison
-9. **Computational Efficiency** - Training/sampling time comparison
-10. **Per-Attacker Privacy** - Detailed MIA breakdown across datasets
+6. **Radar Chart** - Multi-dimensional synthesizer profiles
+7. **Classification CI** - Bootstrap confidence intervals for AUC
+8. **Regression CI** - Bootstrap confidence intervals for MAE
 
-### Dataset-Specific Deep Dives (2 figures)
-11. **Distribution Fidelity** - Feature distributions for both datasets
-12. **Correlation Matrices** - Real vs synthetic feature relationships
+### Supplementary Analysis Figures (3 figures)
+9. **Per-Attacker Privacy** - LR/RF/XGBoost attacker breakdown
+10. **Distribution Fidelity** - Feature distribution comparison (real vs synthetic)
+11. **Correlation Matrices** - Pairwise feature correlation preservation
 
-**All 12 figures** are automatically generated in `runs/figures/` when running `--run-all`.
+**All 11 figures** are automatically generated in `runs/figures/` when running `--run-all`.
 
 ### Quality Standards
 - ✅ 300 DPI resolution (print-ready)
@@ -162,7 +161,7 @@ Each dataset in `runs/<dataset>/` contains:
   - `pairwise_tests`: Statistical significance tests
 
 Cross-dataset visualizations in `runs/figures/`:
-- **`fig1-fig12.png`** — 12 publication-ready cross-dataset comparison figures
+- **`fig1-fig11.png`** — 11 publication-ready cross-dataset comparison figures
 
 **Output size**: 
 - Per dataset: ~10-15MB (data + results)
@@ -282,7 +281,7 @@ SYNTHLA-EDU V2/
     │   ├── data.parquet
     │   └── results.json
     └── figures/                # Cross-dataset visualizations
-        └── fig1-12.png         # 12 publication-quality comparison figures
+        └── fig1-11.png         # 11 publication-quality comparison figures
 ```
 
 **Total**: 1 Python file + 2 dataset result directories + 1 figures directory

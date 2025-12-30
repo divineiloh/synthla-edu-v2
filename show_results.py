@@ -40,14 +40,15 @@ print(f"• runs/oulad/data.parquet (130,372 rows)")
 print(f"• runs/oulad/results.json (3.68 MB)")
 print(f"• runs/assistments/data.parquet (59,634 rows)")
 print(f"• runs/assistments/results.json (0.99 MB)")
-print(f"• runs/figures/ (12 publication figures, 300 DPI)")
+print(f"• runs/figures/ (11 publication figures, 300 DPI)")
 
-print("\n=== All 12 Figures ===")
+print("\n=== All 11 Figures ===")
 for i, name in enumerate([
     "Classification Utility", "Regression Utility", "Data Quality",
     "Privacy (MIA)", "Performance Heatmap", "Radar Chart",
-    "Classification CI", "Regression CI", "Computational Efficiency",
-    "Per-Attacker Privacy", "Distribution Fidelity", "Correlation Matrices"
+    "Classification CI", "Regression CI", "Per-Attacker Privacy",
+    "Distribution Fidelity", "Correlation Matrices"
+], 1):
 ], 1):
     print(f"  {i:2d}. {name}")
 

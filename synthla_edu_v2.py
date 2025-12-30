@@ -610,11 +610,16 @@ def sdmetrics_quality(real: pd.DataFrame, syn: pd.DataFrame) -> Dict[str, Any]:
     return out
 
 
-def c2st_effective_auc(real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, test_size: float = 0.3, seed: int = 0) -> Dict[str, Any]:
+def c2st_effective_auc(real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, exclude_cols: Optional[List[str]] = None, test_size: float = 0.3, seed: int = 0) -> Dict[str, Any]:
     # Compare REAL TEST vs SYNTHETIC TRAIN only (leakage-safe)
-    n = min(len(real_test), len(synthetic_train))
-    real_sample = real_test.sample(n=n, random_state=seed).reset_index(drop=True)
-    synthetic_sample = synthetic_train.sample(n=n, random_state=seed).reset_index(drop=True)
+    # Remove ID columns and any other excluded columns to prevent trivial discrimination
+    exclude = exclude_cols or []
+    real_test_clean = real_test.drop(columns=[c for c in exclude if c in real_test.columns], errors='ignore')
+    synthetic_train_clean = synthetic_train.drop(columns=[c for c in exclude if c in synthetic_train.columns], errors='ignore')
+    
+    n = min(len(real_test_clean), len(synthetic_train_clean))
+    real_sample = real_test_clean.sample(n=n, random_state=seed).reset_index(drop=True)
+    synthetic_sample = synthetic_train_clean.sample(n=n, random_state=seed).reset_index(drop=True)
 
     X = pd.concat([real_sample, synthetic_sample], ignore_index=True)
     y = np.concatenate([np.ones(len(real_sample)), np.zeros(len(synthetic_sample))])
@@ -957,7 +962,7 @@ def create_cross_dataset_visualizations(
     all_train_data: Dict[str, pd.DataFrame],
     all_synthetic_data: Dict[str, Dict[str, pd.DataFrame]]
 ) -> List[Path]:
-    """Generate 12 cross-dataset comparison visualizations.
+    """Generate 11 cross-dataset comparison visualizations.
     
     Args:
         figures_dir: Directory to save figures
@@ -1202,10 +1207,16 @@ def create_cross_dataset_visualizations(
         ax.set_xticklabels(metric_names, fontsize=11)
         ax.set_yticklabels(row_labels, fontsize=9)
         
-        for i in range(len(row_labels)):
-            for j in range(len(metric_names)):
-                ax.text(j, i, f'{metrics_array[i, j]:.1f}', 
-                       ha='center', va='center', color='black', fontsize=9, fontweight='bold')
+        # Conditionally render text if cells are large enough to prevent overlap
+        cell_width = fig.get_figwidth() / len(metric_names)
+        cell_height = fig.get_figheight() / len(row_labels)
+        min_cell_size = 0.5  # inches
+        
+        if cell_width > min_cell_size and cell_height > min_cell_size:
+            for i in range(len(row_labels)):
+                for j in range(len(metric_names)):
+                    ax.text(j, i, f'{metrics_array[i, j]:.1f}', 
+                           ha='center', va='center', color='black', fontsize=9, fontweight='bold')
         
         ax.set_title('Cross-Dataset Performance Heatmap (Higher is Better)', 
                     fontsize=14, fontweight='bold', pad=20)
@@ -1358,56 +1369,7 @@ def create_cross_dataset_visualizations(
     except Exception as e:
         print(f"Warning: Could not create Figure 8: {e}")
     
-    # --- Figure 9: Computational Efficiency ---
-    try:
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        # Extract real timing data from results (use first dataset with complete timing data)
-        train_times = {}
-        sample_times = {}
-        for dataset in datasets:
-            for synth_name in synth_names:
-                timing = all_results[dataset]['synthesizers'][synth_name].get('timing', {})
-                if timing:
-                    train_times[synth_name] = timing.get('fit_seconds', 0)
-                    sample_times[synth_name] = timing.get('sample_seconds', 0)
-            if len(train_times) == len(synth_names):  # Got all synthesizers from this dataset
-                break
-        
-        x = np.arange(len(synth_names))
-        width = 0.35
-        
-        train_vals = [train_times[s] for s in synth_names]
-        sample_vals = [sample_times[s] for s in synth_names]
-        
-        bars1 = ax.bar(x - width/2, train_vals, width, label='Training Time', 
-                      color='#3498db', edgecolor='black')
-        bars2 = ax.bar(x + width/2, sample_vals, width, label='Sampling Time', 
-                      color='#e74c3c', edgecolor='black')
-        
-        for bars in [bars1, bars2]:
-            for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + 5,
-                       f'{int(height)}s', ha='center', va='bottom', fontsize=10, fontweight='bold')
-        
-        ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Synthesizer', fontsize=12, fontweight='bold')
-        ax.set_title('Computational Efficiency Comparison', fontsize=14, fontweight='bold', pad=20)
-        ax.set_xticks(x)
-        ax.set_xticklabels([s.replace('_', ' ').title() for s in synth_names], fontsize=11)
-        ax.legend(fontsize=11, frameon=True, shadow=True)
-        ax.grid(axis='y', alpha=0.3, linestyle='--')
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig9_computational_efficiency.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 9: {e}")
-    
-    # --- Figure 10: Per-Attacker Privacy Breakdown ---
+    # --- Figure 9: Per-Attacker Privacy Breakdown ---
     try:
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         
@@ -1448,39 +1410,45 @@ def create_cross_dataset_visualizations(
         fig.suptitle('Privacy: Per-Attacker MIA Performance', fontsize=14, fontweight='bold', y=1.00)
         fig.tight_layout()
         
-        path = figures_dir / 'fig10_per_attacker_privacy.png'
+        path = figures_dir / 'fig9_per_attacker_privacy.png'
         fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         saved_figs.append(path)
     except Exception as e:
-        print(f"Warning: Could not create Figure 10: {e}")
+        print(f"Warning: Could not create Figure 9: {e}")
     
-    # --- Figure 11: Distribution Fidelity ---
+    # --- Figure 10: Distribution Fidelity ---
     try:
-        # Get 2 key numeric features from OULAD
-        dataset = 'oulad'
-        train_df = all_train_data[dataset]
-        synth_data = all_synthetic_data[dataset]
+        # Get 2 key numeric features per dataset (select by variance for interesting features)
+        all_features = {}
+        for dataset in datasets:
+            train_df = all_train_data[dataset]
+            numeric_cols = [col for col in train_df.columns 
+                           if pd.api.types.is_numeric_dtype(train_df[col]) and train_df[col].nunique() > 10]
+            if len(numeric_cols) >= 2:
+                # Select features with highest variance (more interesting distributions)
+                variances = {col: train_df[col].var() for col in numeric_cols}
+                top_features = sorted(variances, key=variances.get, reverse=True)[:2]
+                all_features[dataset] = top_features
+            elif numeric_cols:
+                all_features[dataset] = numeric_cols[:2]
         
-        key_features = []
-        for col in train_df.columns:
-            if pd.api.types.is_numeric_dtype(train_df[col]) and train_df[col].nunique() > 10:
-                key_features.append(col)
-                if len(key_features) == 2:
-                    break
-        
-        if key_features:
-            fig, axes = plt.subplots(len(key_features), 2, figsize=(14, 4 * len(key_features)))
-            if len(key_features) == 1:
-                axes = axes.reshape(1, -1)
+        if all_features:
+            # Create subplots: 2 features (rows) × 2 datasets (cols)
+            fig, axes = plt.subplots(2, 2, figsize=(14, 8))
             
-            for feat_idx, feat in enumerate(key_features):
-                for ds_idx, dataset in enumerate(datasets):
+            for ds_idx, dataset in enumerate(datasets):
+                if dataset not in all_features:
+                    continue
+                features = all_features[dataset]
+                train_df = all_train_data[dataset]
+                synth_data = all_synthetic_data[dataset]
+                
+                for feat_idx, feat in enumerate(features[:2]):  # Ensure max 2 features
                     ax = axes[feat_idx, ds_idx]
-                    train_df = all_train_data[dataset]
-                    synth_data = all_synthetic_data[dataset]
                     
                     if feat not in train_df.columns:
+                        ax.axis('off')
                         continue
                     
                     real_data = train_df[feat].dropna()
@@ -1503,14 +1471,14 @@ def create_cross_dataset_visualizations(
             fig.suptitle('Distribution Fidelity Comparison', fontsize=14, fontweight='bold', y=1.00)
             fig.tight_layout()
             
-            path = figures_dir / 'fig11_distribution_fidelity.png'
+            path = figures_dir / 'fig10_distribution_fidelity.png'
             fig.savefig(path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             saved_figs.append(path)
     except Exception as e:
-        print(f"Warning: Could not create Figure 11: {e}")
+        print(f"Warning: Could not create Figure 10: {e}")
     
-    # --- Figure 12: Correlation Matrices ---
+    # --- Figure 11: Correlation Matrices ---
     try:
         fig, axes = plt.subplots(2, 4, figsize=(18, 10))
         
@@ -1545,12 +1513,12 @@ def create_cross_dataset_visualizations(
         fig.suptitle('Feature Correlation Matrix Comparison', fontsize=14, fontweight='bold', y=0.98)
         fig.tight_layout()
         
-        path = figures_dir / 'fig12_correlation_matrices.png'
+        path = figures_dir / 'fig11_correlation_matrices.png'
         fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         saved_figs.append(path)
     except Exception as e:
-        print(f"Warning: Could not create Figure 12: {e}")
+        print(f"Warning: Could not create Figure 11: {e}")
     
     # Reset to defaults
     plt.rcParams.update(plt.rcParamsDefault)
@@ -1665,7 +1633,7 @@ def run_single(
     write_json(sd_path, quality_metrics)
 
     print("→ C2ST Realism Test...")
-    realism_metrics = c2st_effective_auc(test_df, synthetic_data, test_size=0.3, seed=seed)
+    realism_metrics = c2st_effective_auc(test_df, synthetic_data, exclude_cols=schema.get("id_cols", []), test_size=0.3, seed=seed)
     c2_path = ds_out / f"c2st__{synth_name}.json"
     remove_if_exists(c2_path)
     write_json(c2_path, realism_metrics)
@@ -1814,7 +1782,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             print(f"    • SDMetrics Quality Report...")
             qual = sdmetrics_quality(test_df, syn)
             print(f"    • C2ST Realism Test...")
-            c2 = c2st_effective_auc(test_df, syn, test_size=0.3, seed=seed)
+            c2 = c2st_effective_auc(test_df, syn, exclude_cols=schema.get("id_cols", []), test_size=0.3, seed=seed)
             print(f"    • MIA Privacy Attack...")
             mia = mia_worst_case_effective_auc(train_df, test_df, syn, exclude_cols=schema.get("id_cols", []), test_size=0.3, random_state=seed, k=5)
             print(f"  [OK] Evaluations complete\n")
@@ -1874,7 +1842,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     remove_glob(figures_dir, "*.png")
     print("[OK] Cleanup complete\n")
     
-    print("Creating 12 gold-standard cross-dataset comparison figures...")
+    print("Creating 11 publication-ready cross-dataset comparison figures...")
     saved_figures = create_cross_dataset_visualizations(
         figures_dir, 
         all_dataset_results, 
