@@ -48,3 +48,6 @@ runs/
 *.tmp
 *.bak
 *.orig
+
+# Local notes (not for repo)
+PAPER_ADDITIONS_NOTES.md

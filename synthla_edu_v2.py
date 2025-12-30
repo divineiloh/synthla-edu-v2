@@ -873,7 +873,7 @@ def plot_main_results(out_dir: Path) -> Path:
 
     out_png = out_dir / "metrics_summary.png"
     try:
-        fig.savefig(str(out_png), dpi=150)
+        fig.savefig(str(out_png), dpi=300)
     finally:
         plt.close(fig)
     return out_png
@@ -1210,7 +1210,7 @@ def create_cross_dataset_visualizations(
         # Conditionally render text if cells are large enough to prevent overlap
         cell_width = fig.get_figwidth() / len(metric_names)
         cell_height = fig.get_figheight() / len(row_labels)
-        min_cell_size = 0.5  # inches
+        min_cell_size = 0.8  # inches (increased for publication readability)
         
         if cell_width > min_cell_size and cell_height > min_cell_size:
             for i in range(len(row_labels)):
@@ -1312,7 +1312,7 @@ def create_cross_dataset_visualizations(
             ax.set_xlabel('AUC Score (95% CI)', fontsize=12, fontweight='bold')
             ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
             ax.set_xlim(0.5, 1.0)
-            ax.grid(axis='x', alpha=0.3, linestyle='--')
+            ax.grid(axis='both', alpha=0.3, linestyle='--')
             ax.invert_yaxis()
         
         fig.suptitle('Classification Performance with Confidence Intervals', 
@@ -1355,7 +1355,7 @@ def create_cross_dataset_visualizations(
             ax.set_yticklabels(models_list, fontsize=11)
             ax.set_xlabel('MAE (95% CI, Lower is Better)', fontsize=12, fontweight='bold')
             ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
-            ax.grid(axis='x', alpha=0.3, linestyle='--')
+            ax.grid(axis='both', alpha=0.3, linestyle='--')
             ax.invert_yaxis()
         
         fig.suptitle('Regression Performance with Confidence Intervals', 
@@ -1452,7 +1452,7 @@ def create_cross_dataset_visualizations(
                         continue
                     
                     real_data = train_df[feat].dropna()
-                    ax.hist(real_data, bins=50, alpha=0.4, color='gray', 
+                    ax.hist(real_data, bins=50, alpha=0.6, color='gray', 
                            label='Real', density=True, edgecolor='black')
                     
                     for s in synth_names:
