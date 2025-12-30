@@ -185,6 +185,9 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
     # Uses median split on n_interactions to avoid deterministic relationship with regression target
     engagement_threshold = out["n_interactions"].median()
     out["high_engagement"] = (out["n_interactions"] >= engagement_threshold).astype(int)
+    
+    # CRITICAL: Drop n_interactions after creating target to prevent trivial prediction
+    out = out.drop(columns=["n_interactions"])
     out["user_id"] = out["user_id"].astype("int64")
 
     schema = {
