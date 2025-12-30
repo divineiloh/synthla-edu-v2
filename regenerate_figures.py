@@ -7,7 +7,7 @@ from pathlib import Path
 from synthla_edu_v2 import create_cross_dataset_visualizations
 
 # Load results and data
-base_out = Path('runs')
+base_out = Path('runs_audit')
 datasets = ['oulad', 'assistments']
 
 all_results = {}
