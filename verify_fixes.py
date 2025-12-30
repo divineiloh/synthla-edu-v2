@@ -139,7 +139,7 @@ def verify_targets_exist(results_dir: Path) -> bool:
         with open(oulad_results) as f:
             data = json.load(f)
         
-        dataset_meta = data.get('dataset', {})
+        dataset_meta = data.get('dataset_metadata', {})
         class_target = dataset_meta.get('classification_target')
         reg_target = dataset_meta.get('regression_target')
         
@@ -149,18 +149,22 @@ def verify_targets_exist(results_dir: Path) -> bool:
             print(f"  ❌ OULAD: Unexpected targets (class='{class_target}', reg='{reg_target}')")
             checks_passed = False
     
-    # ASSISTments should have 'high_accuracy' and 'student_pct_correct'
+    # ASSISTments should have 'high_engagement' (NOT 'high_accuracy') and 'student_pct_correct'
     assistments_results = results_dir / 'assistments' / 'results.json'
     if assistments_results.exists():
         with open(assistments_results) as f:
             data = json.load(f)
         
-        dataset_meta = data.get('dataset', {})
+        dataset_meta = data.get('dataset_metadata', {})
         class_target = dataset_meta.get('classification_target')
         reg_target = dataset_meta.get('regression_target')
         
-        if class_target == 'high_accuracy' and reg_target == 'student_pct_correct':
-            print(f"  ✅ ASSISTments: Correct targets (classification='high_accuracy', regression='student_pct_correct')")
+        if class_target == 'high_engagement' and reg_target == 'student_pct_correct':
+            print(f"  ✅ ASSISTments: Correct independent targets (classification='high_engagement', regression='student_pct_correct')")
+        elif class_target == 'high_accuracy':
+            print(f"  ❌ ASSISTments: Still using 'high_accuracy' (deterministically derived from 'student_pct_correct')")
+            print(f"     Should use 'high_engagement' for independent classification target")
+            checks_passed = False
         else:
             print(f"  ❌ ASSISTments: Unexpected targets (class='{class_target}', reg='{reg_target}')")
             checks_passed = False
