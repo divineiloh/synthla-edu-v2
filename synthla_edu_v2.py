@@ -181,14 +181,16 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
         "avg_response_time": (grp["ms_first_response"].mean().values.astype(float) if "ms_first_response" in df.columns else grp.size().values.astype(float)),
     })
 
-    # Binary classification target: high_accuracy (student_pct_correct >= 0.5)
-    out["high_accuracy"] = (out["student_pct_correct"] >= 0.5).astype(int)
+    # Binary classification target: high_engagement (independent from student_pct_correct)
+    # Uses median split on n_interactions to avoid deterministic relationship with regression target
+    engagement_threshold = out["n_interactions"].median()
+    out["high_engagement"] = (out["n_interactions"] >= engagement_threshold).astype(int)
     out["user_id"] = out["user_id"].astype("int64")
 
     schema = {
         "id_cols": ["user_id"],
         "group_col": "user_id",
-        "target_cols": ["high_accuracy", "student_pct_correct"],
+        "target_cols": ["high_engagement", "student_pct_correct"],
         "categorical_cols": [],
     }
     return out, schema
@@ -1641,12 +1643,15 @@ def run_single(
     write_json(sd_path, quality_metrics)
 
     print("→ C2ST Realism Test...")
-    realism_metrics = c2st_effective_auc(test_df, synthetic_data, exclude_cols=schema.get("id_cols", []), test_size=0.3, seed=seed)
+    # Exclude both ID columns AND target columns to prevent trivial discrimination
+    c2st_exclude = schema.get("id_cols", []) + schema.get("target_cols", [])
+    realism_metrics = c2st_effective_auc(test_df, synthetic_data, exclude_cols=c2st_exclude, test_size=0.3, seed=seed)
     c2_path = ds_out / f"c2st__{synth_name}.json"
     remove_if_exists(c2_path)
     write_json(c2_path, realism_metrics)
 
     print("→ MIA Privacy Attack...")
+    # MIA should exclude ID columns but may include targets (attacker's choice)
     exclude_cols = schema.get("id_cols", [])
     privacy_metrics = mia_worst_case_effective_auc(train_df, test_df, synthetic_data, exclude_cols=exclude_cols, test_size=0.3, random_state=seed, k=5)
     mia_path = ds_out / f"mia__{synth_name}.json"
@@ -1723,6 +1728,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         results: Dict[str, Any] = {
             "dataset": dataset,
             "seed": seed,
+            "quick_mode": cfg.quick,
             "split_sizes": {"train": int(len(train_df)), "test": int(len(test_df))},
             "env": {"python": sys.version, "platform": platform.platform()},
             "timestamp": int(time.time()),
@@ -1734,7 +1740,29 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         if dataset == "oulad":
             class_target, reg_target = "dropout", "final_grade"
         else:
-            class_target, reg_target = "high_accuracy", "student_pct_correct"
+            class_target, reg_target = "high_engagement", "student_pct_correct"
+        
+        # Add dataset metadata for transparency and reproducibility
+        results["dataset_metadata"] = {
+            "classification_target": class_target,
+            "regression_target": reg_target,
+            "id_columns": schema.get("id_cols", []),
+            "group_column": schema.get("group_col"),
+            "n_features": len([c for c in train_df.columns if c not in schema.get("target_cols", []) + schema.get("id_cols", [])]),
+            "n_total_columns": len(train_df.columns),
+        }
+        
+        # Print target distribution diagnostics
+        print(f"[{dataset.upper()}] Target Distributions:")
+        if class_target in train_df.columns:
+            class_counts = train_df[class_target].value_counts()
+            class_ratio = class_counts.min() / class_counts.max()
+            print(f"  • {class_target}: {dict(class_counts)} (balance ratio: {class_ratio:.3f})")
+        if reg_target in train_df.columns:
+            reg_vals = train_df[reg_target]
+            print(f"  • {reg_target}: min={reg_vals.min():.2f}, max={reg_vals.max():.2f}, "
+                  f"mean={reg_vals.mean():.2f}, std={reg_vals.std():.2f}")
+        print()
 
         print(f"[{dataset.upper()}] Step 4/7: Training {len(synthesizers)} synthesizers...\n")
         
@@ -1790,7 +1818,9 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             print(f"    • SDMetrics Quality Report...")
             qual = sdmetrics_quality(test_df, syn)
             print(f"    • C2ST Realism Test...")
-            c2 = c2st_effective_auc(test_df, syn, exclude_cols=schema.get("id_cols", []), test_size=0.3, seed=seed)
+            # Exclude both ID and target columns for fair realism comparison
+            c2st_exclude = schema.get("id_cols", []) + schema.get("target_cols", [])
+            c2 = c2st_effective_auc(test_df, syn, exclude_cols=c2st_exclude, test_size=0.3, seed=seed)
             print(f"    • MIA Privacy Attack...")
             mia = mia_worst_case_effective_auc(train_df, test_df, syn, exclude_cols=schema.get("id_cols", []), test_size=0.3, random_state=seed, k=5)
             print(f"  [OK] Evaluations complete\n")
@@ -1834,6 +1864,19 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         all_train_data[dataset] = train_df
         all_synthetic_data[dataset] = synthetic_datasets
         
+        # Print per-dataset summary
+        print(f"[{dataset.upper()}] {'='*70}")
+        print(f"[{dataset.upper()}] SUMMARY: Synthesizer Performance")
+        print(f"[{dataset.upper()}] {'='*70}")
+        for synth_name in results["synthesizers"]:
+            s = results["synthesizers"][synth_name]
+            util_auc = s["utility"]["classification"]["mean_auc"]
+            util_mae = s["utility"]["regression"]["mean_mae"]
+            quality = s["sdmetrics"]["overall_score"]
+            c2st = s["c2st"]["effective_auc"]
+            mia = s["mia"]["worst_case_effective_auc"]
+            print(f"[{dataset.upper()}] {synth_name:20s}: Utility AUC={util_auc:.3f}, MAE={util_mae:.2f} | "
+                  f"Quality={quality:.3f}, C2ST={c2st:.3f}, MIA={mia:.3f}")
         print(f"[{dataset.upper()}] {'='*70}")
         print(f"[{dataset.upper()}] DATASET COMPLETE")
         print(f"[{dataset.upper()}] {'='*70}\n")
