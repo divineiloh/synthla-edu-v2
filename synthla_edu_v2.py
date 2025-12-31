@@ -752,11 +752,27 @@ class TabDDPMSynth:
                     batches.append(batch_samples.to_pandas() if hasattr(batch_samples, "to_pandas") else batch_samples.dataframe())
                     remaining -= current_batch
                 samples = pd.concat(batches, ignore_index=True)
-                return samples
             else:
                 # For smaller samples, generate directly
                 samples = self._model.generate(count=n)
-                return samples.to_pandas() if hasattr(samples, "to_pandas") else samples.dataframe()
+                samples = samples.to_pandas() if hasattr(samples, "to_pandas") else samples.dataframe()
+            
+            # CRITICAL: Validate TabDDPM output for publication quality
+            # TabDDPM can produce NaN/inf values during training instability
+            if samples.isna().sum().sum() > 0:
+                nan_cols = samples.columns[samples.isna().any()].tolist()
+                raise RuntimeError(f"TabDDPM produced NaN values in columns: {nan_cols}. "
+                                 f"This indicates training instability. Increase n_iter (current: {self.params.get('n_iter', 'unknown')}) "
+                                 f"or remove --quick flag for stable results.")
+            
+            if np.isinf(samples.select_dtypes(include=[np.number]).values).any():
+                raise RuntimeError(f"TabDDPM produced infinite values. This indicates numerical instability. "
+                                 f"Try increasing n_iter or adjusting learning rate.")
+            
+            return samples
+        except RuntimeError:
+            # Re-raise our validation errors
+            raise
         except Exception as e:
             raise RuntimeError(f"TabDDPM sampling failed: {e}. This can occur with complex datasets. Try increasing n_iter or reducing num_timesteps.")
 
@@ -1041,22 +1057,28 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
     rf_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     rf_trtr_prob = rf_trtr.predict_proba(X_real_te_cls)[:, 1]
     rf_trtr_auc = float(roc_auc_score(y_real_te_cls, rf_trtr_prob))
+    # Compute TRTR per-sample log loss for statistical comparison with TSTR
+    rf_trtr_logloss_vec = -np.log(np.clip(rf_trtr_prob * y_real_te_cls + (1 - rf_trtr_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
 
     lr_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_cls)), ("clf", LogisticRegression(max_iter=1000, solver="liblinear", random_state=seed))])
     lr_trtr.fit(X_real_tr_cls, y_real_tr_cls)
     lr_trtr_prob = lr_trtr.predict_proba(X_real_te_cls)[:, 1]
     lr_trtr_auc = float(roc_auc_score(y_real_te_cls, lr_trtr_prob))
+    # Compute TRTR per-sample log loss for statistical comparison with TSTR
+    lr_trtr_logloss_vec = -np.log(np.clip(lr_trtr_prob * y_real_te_cls + (1 - lr_trtr_prob) * (1 - y_real_te_cls), 1e-15, 1.0))
 
     X_real_tr_reg, y_real_tr_reg = split_X_y(real_train, reg_target, all_targets)
     rf_reg_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", RandomForestRegressor(n_estimators=300, random_state=seed, n_jobs=-1))])
     rf_reg_trtr.fit(X_real_tr_reg, y_real_tr_reg)
     rf_trtr_pred = rf_reg_trtr.predict(X_real_te_reg)
-    rf_trtr_mae = float(np.mean(np.abs(rf_trtr_pred - y_real_te_reg)))
+    rf_trtr_mae_vec = np.abs(rf_trtr_pred - y_real_te_reg)
+    rf_trtr_mae = float(np.mean(rf_trtr_mae_vec))
 
     ridge_reg_trtr = Pipeline([("pre", make_preprocess_pipeline(spec_reg)), ("reg", Ridge(alpha=1.0))])
     ridge_reg_trtr.fit(X_real_tr_reg, y_real_tr_reg)
     ridge_trtr_pred = ridge_reg_trtr.predict(X_real_te_reg)
-    ridge_trtr_mae = float(np.mean(np.abs(ridge_trtr_pred - y_real_te_reg)))
+    ridge_trtr_mae_vec = np.abs(ridge_trtr_pred - y_real_te_reg)
+    ridge_trtr_mae = float(np.mean(ridge_trtr_mae_vec))
 
     return {
         "classification": {
@@ -1078,6 +1100,11 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
             "cls_logloss_lr": lr_logloss_vec.tolist(),
             "reg_abs_err_rf": rf_mae_vec.tolist(),
             "reg_abs_err_ridge": ridge_mae_vec.tolist(),
+            # TRTR per-sample losses for statistical comparison
+            "cls_logloss_rf_trtr": rf_trtr_logloss_vec.tolist(),
+            "cls_logloss_lr_trtr": lr_trtr_logloss_vec.tolist(),
+            "reg_abs_err_rf_trtr": rf_trtr_mae_vec.tolist(),
+            "reg_abs_err_ridge_trtr": ridge_trtr_mae_vec.tolist(),
         }
     }
 
@@ -2230,6 +2257,8 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             }
 
         print(f"[{dataset.upper()}] Step 5/7: Pairwise statistical significance tests...")
+        
+        # Pairwise synthesizer comparisons (TSTR only)
         pairs = [("ctgan", "tabddpm"), ("ctgan", "gaussian_copula"), ("tabddpm", "gaussian_copula")]
         for a, b in pairs:
             if a in per_sample_losses and b in per_sample_losses:
@@ -2238,12 +2267,51 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
                 reg_test = paired_permutation_test(per_sample_losses[a]["reg_abs_err"], per_sample_losses[b]["reg_abs_err"], n_perm=10000, random_state=seed)
                 results["pairwise_tests"][f"{a}_vs_{b}"] = {"classification": cls_test, "regression": reg_test}
         
-        # Apply Bonferroni correction for multiple testing (6 tests total: 3 pairs × 2 metrics)
-        # Critical for controlling family-wise error rate (FWER) in pairwise comparisons
+        # TSTR vs TRTR comparisons (utility gap significance)
+        print(f"  > Testing TSTR vs TRTR (utility gap significance)...")
+        results["tstr_vs_trtr"] = {}
+        for synth_name in synth_names:
+            if synth_name in results["synthesizers"]:
+                util = results["synthesizers"][synth_name]["utility"]
+                # Classification: TSTR vs TRTR
+                tstr_cls_rf = np.array(util["per_sample"]["cls_logloss_rf"])
+                trtr_cls_rf = np.array(util["per_sample"]["cls_logloss_rf_trtr"])
+                cls_rf_test = paired_permutation_test(tstr_cls_rf, trtr_cls_rf, n_perm=10000, random_state=seed)
+                
+                tstr_cls_lr = np.array(util["per_sample"]["cls_logloss_lr"])
+                trtr_cls_lr = np.array(util["per_sample"]["cls_logloss_lr_trtr"])
+                cls_lr_test = paired_permutation_test(tstr_cls_lr, trtr_cls_lr, n_perm=10000, random_state=seed)
+                
+                # Regression: TSTR vs TRTR
+                tstr_reg_rf = np.array(util["per_sample"]["reg_abs_err_rf"])
+                trtr_reg_rf = np.array(util["per_sample"]["reg_abs_err_rf_trtr"])
+                reg_rf_test = paired_permutation_test(tstr_reg_rf, trtr_reg_rf, n_perm=10000, random_state=seed)
+                
+                tstr_reg_ridge = np.array(util["per_sample"]["reg_abs_err_ridge"])
+                trtr_reg_ridge = np.array(util["per_sample"]["reg_abs_err_ridge_trtr"])
+                reg_ridge_test = paired_permutation_test(tstr_reg_ridge, trtr_reg_ridge, n_perm=10000, random_state=seed)
+                
+                results["tstr_vs_trtr"][synth_name] = {
+                    "classification_rf": cls_rf_test,
+                    "classification_lr": cls_lr_test,
+                    "regression_rf": reg_rf_test,
+                    "regression_ridge": reg_ridge_test
+                }
+        
+        # Apply Bonferroni correction for multiple testing
+        # Total tests: 
+        # - Pairwise comparisons: 3 pairs × 2 metrics = 6
+        # - TSTR vs TRTR: 3 synthesizers × 4 tests (cls_rf, cls_lr, reg_rf, reg_ridge) = 12
+        # Total = 18 hypothesis tests
         all_p_values = []
         for pair_key, tests in results["pairwise_tests"].items():
             all_p_values.append(tests["classification"]["p_value"])
             all_p_values.append(tests["regression"]["p_value"])
+        for synth_key, tests in results["tstr_vs_trtr"].items():
+            all_p_values.append(tests["classification_rf"]["p_value"])
+            all_p_values.append(tests["classification_lr"]["p_value"])
+            all_p_values.append(tests["regression_rf"]["p_value"])
+            all_p_values.append(tests["regression_ridge"]["p_value"])
         
         n_tests = len(all_p_values)
         adjusted_alpha = 0.05 / n_tests if n_tests > 0 else 0.05
@@ -2253,8 +2321,12 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             "original_alpha": 0.05,
             "adjusted_alpha": adjusted_alpha,
             "n_tests": n_tests,
+            "test_breakdown": {
+                "pairwise_comparisons": len(results["pairwise_tests"]) * 2,
+                "tstr_vs_trtr": len(results["tstr_vs_trtr"]) * 4
+            },
             "interpretation": f"Reject H0 if p < {adjusted_alpha:.4f} (Bonferroni-corrected threshold)",
-            "rationale": "Controls family-wise error rate at α=0.05 across all pairwise comparisons"
+            "rationale": "Controls family-wise error rate at α=0.05 across all hypothesis tests (pairwise + utility gap)"
         }
         
         # Mark which tests are significant after correction
@@ -2262,7 +2334,16 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             tests["classification"]["significant_bonferroni"] = tests["classification"]["p_value"] < adjusted_alpha
             tests["regression"]["significant_bonferroni"] = tests["regression"]["p_value"] < adjusted_alpha
         
-        print(f"[{dataset.upper()}] [OK] Pairwise tests complete (Bonferroni-corrected α={adjusted_alpha:.4f})\n")
+        for synth_key, tests in results["tstr_vs_trtr"].items():
+            tests["classification_rf"]["significant_bonferroni"] = tests["classification_rf"]["p_value"] < adjusted_alpha
+            tests["classification_lr"]["significant_bonferroni"] = tests["classification_lr"]["p_value"] < adjusted_alpha
+            tests["regression_rf"]["significant_bonferroni"] = tests["regression_rf"]["p_value"] < adjusted_alpha
+            tests["regression_ridge"]["significant_bonferroni"] = tests["regression_ridge"]["p_value"] < adjusted_alpha
+        
+        print(f"[{dataset.upper()}] [OK] Statistical tests complete:")
+        print(f"[{dataset.upper()}]   - Pairwise comparisons: {len(results['pairwise_tests']) * 2} tests")
+        print(f"[{dataset.upper()}]   - TSTR vs TRTR: {len(results['tstr_vs_trtr']) * 4} tests")
+        print(f"[{dataset.upper()}]   - Bonferroni-corrected α={adjusted_alpha:.4f}\n")
 
         print(f"[{dataset.upper()}] Step 6/7: Saving consolidated results...")
         data_parquet = pd.concat(all_rows, axis=0, ignore_index=True)
