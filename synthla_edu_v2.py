@@ -237,20 +237,114 @@ def _find_csv(raw_dir: Path, stem_lower: str) -> Path:
     raise FileNotFoundError(f"Could not find CSV for '{stem_lower}' under {raw_dir}")
 
 
-def load_raw_oulad(raw_dir: str | Path) -> Dict[str, pd.DataFrame]:
+def load_raw_oulad(raw_dir: str | Path, *, skip_keys: Optional[set[str]] = None) -> Dict[str, pd.DataFrame]:
     raw_dir = Path(raw_dir)
     dfs: Dict[str, pd.DataFrame] = {}
+    skip_keys = skip_keys or set()
     for key in OULAD_REQUIRED_FILES:
+        if key in skip_keys:
+            continue
         path = _find_csv(raw_dir, key)
         dfs[key] = pd.read_csv(path)
     return dfs
 
 
+def _aggregate_studentvle_streaming(
+    studentvle_csv: Path,
+    keys: List[str],
+    *,
+    min_vle_clicks_clip: float = 0.0,
+    chunksize: int = 250_000,
+    max_site_id: int = 5000,
+    date_offset: int = 500,
+    max_date_value: int = 1500,
+) -> pd.DataFrame:
+    # Stream the giant file to avoid large contiguous allocations during pandas factorization/groupby.
+    # Preserve the original feature set while staying memory-safe.
+    usecols = [c for c in (keys + ["sum_click", "id_site", "date"]) if c]
+    acc_sum: Dict[tuple, float] = {}
+    acc_count: Dict[tuple, int] = {}
+
+    # Dynamically grow per-group bitsets to avoid allocating large buffers up-front.
+    site_cap_bits = max_site_id + 1
+    date_cap_bits = max_date_value + date_offset + 1
+    site_bytes_initial = 64
+    date_bytes_initial = 64
+    acc_sites_bits: Dict[tuple, bytearray] = {}
+    acc_days_bits: Dict[tuple, bytearray] = {}
+
+    def _set_bits(bitarr: bytearray, values: np.ndarray, *, offset: int, cap_bits: int) -> None:
+        # values may be float with NaN; coerce safely
+        vals = pd.Series(values).dropna().astype(int).to_numpy()
+        for v in vals:
+            idx = v + offset
+            if idx < 0 or idx >= cap_bits:
+                continue
+            byte_i = idx >> 3
+            bit_i = idx & 7
+            need_len = byte_i + 1
+            if need_len > len(bitarr):
+                bitarr.extend(b"\x00" * (need_len - len(bitarr)))
+            bitarr[byte_i] |= (1 << bit_i)
+
+    def _popcount_bytes(bitarr: bytearray) -> int:
+        return sum(int(b).bit_count() for b in bitarr)
+
+    for chunk in pd.read_csv(studentvle_csv, usecols=usecols, chunksize=chunksize):
+        if min_vle_clicks_clip > 0.0:
+            # Avoid assignment; operate on the temporary chunk only.
+            chunk["sum_click"] = chunk["sum_click"].clip(lower=min_vle_clicks_clip)
+
+        # Sum + count
+        grp_clicks = chunk.groupby(keys, sort=False)["sum_click"]
+        sums = grp_clicks.sum()
+        counts = grp_clicks.size()
+        for k, v in sums.items():
+            acc_sum[k] = acc_sum.get(k, 0.0) + float(v)
+        for k, v in counts.items():
+            acc_count[k] = acc_count.get(k, 0) + int(v)
+
+        # Distinct sites
+        if "id_site" in chunk.columns:
+            sites = chunk.groupby(keys, sort=False)["id_site"].unique()
+            for k, arr in sites.items():
+                bitarr = acc_sites_bits.get(k)
+                if bitarr is None:
+                    bitarr = bytearray(site_bytes_initial)
+                    acc_sites_bits[k] = bitarr
+                _set_bits(bitarr, np.asarray(arr), offset=0, cap_bits=site_cap_bits)
+
+        # Distinct days
+        if "date" in chunk.columns:
+            days = chunk.groupby(keys, sort=False)["date"].unique()
+            for k, arr in days.items():
+                bitarr = acc_days_bits.get(k)
+                if bitarr is None:
+                    bitarr = bytearray(date_bytes_initial)
+                    acc_days_bits[k] = bitarr
+                _set_bits(bitarr, np.asarray(arr), offset=date_offset, cap_bits=date_cap_bits)
+
+    rows = []
+    for k, total in acc_sum.items():
+        nrec = acc_count.get(k, 0)
+        nsites = _popcount_bytes(acc_sites_bits.get(k, bytearray()))
+        ndays = _popcount_bytes(acc_days_bits.get(k, bytearray()))
+        rows.append((*k, total, nrec, nsites, ndays))
+
+    vle_feat = pd.DataFrame(
+        rows,
+        columns=[*keys, "total_vle_clicks", "n_vle_records", "n_vle_sites", "n_vle_days"],
+    )
+    vle_feat["mean_vle_clicks"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_records"].replace(0, np.nan)
+    vle_feat["clicks_per_active_day"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_days"].replace(0, np.nan)
+    return vle_feat
+
+
 def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float = 0.0) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    dfs = load_raw_oulad(raw_dir)
+    # Avoid loading the massive studentVle table all at once (stream it instead).
+    dfs = load_raw_oulad(raw_dir, skip_keys={"studentvle"})
     info = dfs["studentinfo"].copy()
     reg = dfs["studentregistration"].copy()
-    svle = dfs["studentvle"].copy()
     sass = dfs["studentassessment"].copy()
     ass = dfs["assessments"].copy()
 
@@ -259,8 +353,18 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
     # Target: 1 = Fail/Withdrawn, 0 = Pass/Distinction
     info["dropout"] = info["final_result"].astype(str).str.lower().isin(["withdrawn", "fail"]).astype(int)
 
+    # Reduce memory pressure for large groupbys (studentVle can be ~10M rows)
+    # - sort=False prevents pandas from allocating extra arrays to reorder group labels
+    # - observed=True is only used when group keys are categorical
+    # NOTE: Avoid casting the huge studentVle keys to categorical on low-memory machines;
+    # doing so can trigger large temporary allocations during dtype inference.
+    for c in ["code_module", "code_presentation"]:
+        for df_ in (reg, sass, ass):
+            if c in df_.columns and df_[c].dtype == object:
+                df_[c] = df_[c].astype("category")
+
     reg_feat = (
-        reg.groupby(keys, as_index=False)
+        reg.groupby(keys, as_index=False, sort=False, observed=True)
         .agg(
             date_registration=("date_registration", "min"),
             date_unregistration=("date_unregistration", "min"),
@@ -268,18 +372,8 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
     )
     reg_feat["is_unregistered"] = reg_feat["date_unregistration"].notna().astype(int)
 
-    svle["sum_click"] = svle["sum_click"].clip(lower=min_vle_clicks_clip)
-    vle_feat = (
-        svle.groupby(keys, as_index=False)
-        .agg(
-            total_vle_clicks=("sum_click", "sum"),
-            mean_vle_clicks=("sum_click", "mean"),
-            n_vle_records=("sum_click", "size"),
-            n_vle_sites=("id_site", "nunique"),
-            n_vle_days=("date", "nunique"),
-        )
-    )
-    vle_feat["clicks_per_active_day"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_days"].replace(0, np.nan)
+    studentvle_csv = _find_csv(Path(raw_dir), "studentvle")
+    vle_feat = _aggregate_studentvle_streaming(studentvle_csv, keys, min_vle_clicks_clip=min_vle_clicks_clip)
 
     # Fix: First attach (code_module, code_presentation, weight) from assessments to studentAssessment
     # This prevents many-to-many join that would duplicate rows
@@ -289,7 +383,7 @@ def build_oulad_student_table(raw_dir: str | Path, *, min_vle_clicks_clip: float
     # Now aggregate grades by (code_module, code_presentation, id_student)
     sass["score_x_weight"] = sass["score"] * sass["weight"]
     grade_feat = (
-        sass.groupby(keys, as_index=False)
+        sass.groupby(keys, as_index=False, sort=False, observed=True)
         .agg(
             n_assessments=("id_assessment", "nunique"),
             total_weight=("weight", "sum"),
@@ -1731,7 +1825,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         results: Dict[str, Any] = {
             "dataset": dataset,
             "seed": seed,
-            "quick_mode": cfg.quick,
+            "quick_mode": quick,
             "split_sizes": {"train": int(len(train_df)), "test": int(len(test_df))},
             "env": {"python": sys.version, "platform": platform.platform()},
             "timestamp": int(time.time()),
