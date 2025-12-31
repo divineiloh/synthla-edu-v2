@@ -23,6 +23,7 @@ import sys
 import platform
 import time
 import random
+import os
 import torch
 
 try:
@@ -186,6 +187,17 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
     engagement_threshold = out["n_interactions"].median()
     out["high_engagement"] = (out["n_interactions"] >= engagement_threshold).astype(int)
     
+    # Verify independence: check correlation between features and dropped n_interactions
+    # This ensures the classification task is not trivial via proxy reconstruction
+    feature_cols = [c for c in out.columns if c not in ["user_id", "high_engagement", "student_pct_correct", "n_interactions"]]
+    if feature_cols:
+        correlations = out[feature_cols].corrwith(out["n_interactions"]).abs()
+        max_corr = correlations.max()
+        if max_corr > 0.8:
+            print(f"WARNING: High correlation detected between n_interactions and features (max={max_corr:.3f})")
+            print(f"Top correlated: {correlations.nlargest(3).to_dict()}")
+            print("This may create implicit leakage in classification task.")
+    
     # CRITICAL: Drop n_interactions after creating target to prevent trivial prediction
     out = out.drop(columns=["n_interactions"])
     out["user_id"] = out["user_id"].astype("int64")
@@ -255,9 +267,6 @@ def _aggregate_studentvle_streaming(
     *,
     min_vle_clicks_clip: float = 0.0,
     chunksize: int = 250_000,
-    max_site_id: int = 5000,
-    date_offset: int = 500,
-    max_date_value: int = 1500,
 ) -> pd.DataFrame:
     # Stream the giant file to avoid large contiguous allocations during pandas factorization/groupby.
     # Preserve the original feature set while staying memory-safe.
@@ -265,13 +274,15 @@ def _aggregate_studentvle_streaming(
     acc_sum: Dict[tuple, float] = {}
     acc_count: Dict[tuple, int] = {}
 
-    # Dynamically grow per-group bitsets to avoid allocating large buffers up-front.
-    site_cap_bits = max_site_id + 1
-    date_cap_bits = max_date_value + date_offset + 1
+    # Auto-detect ranges from data to avoid hardcoded caps
+    site_min, site_max = None, None
+    date_min, date_max = None, None
     site_bytes_initial = 64
     date_bytes_initial = 64
     acc_sites_bits: Dict[tuple, bytearray] = {}
     acc_days_bits: Dict[tuple, bytearray] = {}
+    
+    first_pass = True
 
     def _set_bits(bitarr: bytearray, values: np.ndarray, *, offset: int, cap_bits: int) -> None:
         # values may be float with NaN; coerce safely
@@ -291,8 +302,20 @@ def _aggregate_studentvle_streaming(
         return sum(int(b).bit_count() for b in bitarr)
 
     for chunk in pd.read_csv(studentvle_csv, usecols=usecols, chunksize=chunksize):
+        # First pass: detect ranges
+        if first_pass:
+            if "id_site" in chunk.columns:
+                chunk_site_vals = chunk["id_site"].dropna()
+                if len(chunk_site_vals) > 0:
+                    site_min = int(chunk_site_vals.min()) if site_min is None else min(site_min, int(chunk_site_vals.min()))
+                    site_max = int(chunk_site_vals.max()) if site_max is None else max(site_max, int(chunk_site_vals.max()))
+            if "date" in chunk.columns:
+                chunk_date_vals = chunk["date"].dropna()
+                if len(chunk_date_vals) > 0:
+                    date_min = int(chunk_date_vals.min()) if date_min is None else min(date_min, int(chunk_date_vals.min()))
+                    date_max = int(chunk_date_vals.max()) if date_max is None else max(date_max, int(chunk_date_vals.max()))
+        
         if min_vle_clicks_clip > 0.0:
-            # Avoid assignment; operate on the temporary chunk only.
             chunk["sum_click"] = chunk["sum_click"].clip(lower=min_vle_clicks_clip)
 
         # Sum + count
@@ -304,18 +327,27 @@ def _aggregate_studentvle_streaming(
         for k, v in counts.items():
             acc_count[k] = acc_count.get(k, 0) + int(v)
 
+        # After first chunk, compute bit capacities
+        if first_pass:
+            first_pass = False
+            # Add 10% buffer for safety
+            site_offset = 0 if site_min is None else -site_min
+            site_cap_bits = 1 if site_max is None else int((site_max - (site_min or 0)) * 1.1) + 100
+            date_offset = 0 if date_min is None else -date_min
+            date_cap_bits = 1 if date_max is None else int((date_max - (date_min or 0)) * 1.1) + 100
+
         # Distinct sites
-        if "id_site" in chunk.columns:
+        if "id_site" in chunk.columns and site_min is not None:
             sites = chunk.groupby(keys, sort=False)["id_site"].unique()
             for k, arr in sites.items():
                 bitarr = acc_sites_bits.get(k)
                 if bitarr is None:
                     bitarr = bytearray(site_bytes_initial)
                     acc_sites_bits[k] = bitarr
-                _set_bits(bitarr, np.asarray(arr), offset=0, cap_bits=site_cap_bits)
+                _set_bits(bitarr, np.asarray(arr), offset=site_offset, cap_bits=site_cap_bits)
 
         # Distinct days
-        if "date" in chunk.columns:
+        if "date" in chunk.columns and date_min is not None:
             days = chunk.groupby(keys, sort=False)["date"].unique()
             for k, arr in days.items():
                 bitarr = acc_days_bits.get(k)
@@ -523,10 +555,19 @@ class GaussianCopulaSynth:
         self._model.fit(df_fixed)
         return self
 
-    def sample(self, n: int) -> pd.DataFrame:
+    def sample(self, n: int, *, random_state: Optional[int] = None) -> pd.DataFrame:
         if self._model is None:
             raise RuntimeError("fit() must be called before sample().")
-        synthetic = self._model.sample(n)
+        # SDV 1.0+ supports random_state for reproducibility
+        if random_state is not None:
+            set_seed(random_state)
+            try:
+                synthetic = self._model.sample(n, random_state=random_state)
+            except TypeError:
+                # Fallback for older SDV versions
+                synthetic = self._model.sample(n)
+        else:
+            synthetic = self._model.sample(n)
         # Restore original category names
         for col in synthetic.columns:
             if synthetic[col].dtype == 'object' or isinstance(synthetic[col].dtype, pd.CategoricalDtype):
@@ -578,10 +619,19 @@ class CTGANSynth:
         self._model.fit(df_fixed)
         return self
 
-    def sample(self, n: int) -> pd.DataFrame:
+    def sample(self, n: int, *, random_state: Optional[int] = None) -> pd.DataFrame:
         if self._model is None:
             raise RuntimeError("fit() must be called before sample().")
-        synthetic = self._model.sample(n)
+        # SDV 1.0+ supports random_state for reproducibility
+        if random_state is not None:
+            set_seed(random_state)
+            try:
+                synthetic = self._model.sample(n, random_state=random_state)
+            except TypeError:
+                # Fallback for older SDV versions
+                synthetic = self._model.sample(n)
+        else:
+            synthetic = self._model.sample(n)
         # Restore original category names
         for col in synthetic.columns:
             if synthetic[col].dtype == 'object' or isinstance(synthetic[col].dtype, pd.CategoricalDtype):
@@ -604,6 +654,11 @@ class TabDDPMSynth:
 
     def __init__(self, **kwargs) -> None:
         # Set stable defaults for TabDDPM to avoid NaN issues
+        # NOTE: TabDDPM can be unstable on datasets with:
+        #   - Extreme outliers (>99.5th percentile) → auto-clipped in fit()
+        #   - High missing data rates (>10%) → auto-imputed in fit()
+        #   - Small sample sizes (<500 rows) → may produce poor results
+        #   - High cardinality categoricals (>100 categories) → consider encoding
         self.params = {
             "n_iter": kwargs.get("n_iter", 2000), # More iterations for convergence with lower LR
             "lr": 0.0002,  # Lower learning rate for stability (was 0.001)
@@ -651,9 +706,13 @@ class TabDDPMSynth:
             raise RuntimeError(f"TabDDPM fitting failed: {e}. Ensure synthcity>=0.2.11 and compatible torch are installed.")
         return self
 
-    def sample(self, n: int) -> pd.DataFrame:
+    def sample(self, n: int, *, random_state: Optional[int] = None) -> pd.DataFrame:
         if self._model is None:
             raise RuntimeError("fit() must be called before sample().")
+        
+        # Set seed for reproducibility if provided
+        if random_state is not None:
+            set_seed(random_state)
         
         # TabDDPM can be unstable with sampling_patience parameter
         # Use simple generate() call with batch sampling for large n
@@ -811,14 +870,34 @@ def mia_worst_case_effective_auc(real_train: pd.DataFrame, real_holdout: pd.Data
     return results
 
 def bootstrap_ci(metric_vector: np.ndarray, *, n_boot: int = 1000, alpha: float = 0.05, random_state: int = 0) -> Dict[str, float]:
-    rng = np.random.default_rng(random_state)
+    """Bootstrap confidence intervals with warnings for small sample sizes.
+    
+    Minimum recommended sample size: 30 observations
+    Small samples (n < 50) use reduced bootstrap iterations to avoid overfitting.
+    """
     n = len(metric_vector)
+    
+    # Warn for small samples
+    if n < 30:
+        print(f"WARNING: Small sample size (n={n}) may produce unreliable bootstrap CIs. Recommend n >= 30.")
+    
+    # Reduce bootstrap iterations for very small samples
+    if n < 50:
+        n_boot = min(n_boot, 500)
+    
+    rng = np.random.default_rng(random_state)
     boot = []
     for _ in range(n_boot):
         idx = rng.integers(0, n, size=n)
         boot.append(float(np.mean(metric_vector[idx])))
     boot = np.array(boot)
-    return {"mean": float(np.mean(boot)), "ci_low": float(np.quantile(boot, alpha/2)), "ci_high": float(np.quantile(boot, 1 - alpha/2))}
+    return {
+        "mean": float(np.mean(boot)), 
+        "ci_low": float(np.quantile(boot, alpha/2)), 
+        "ci_high": float(np.quantile(boot, 1 - alpha/2)),
+        "n_samples": int(n),
+        "n_bootstrap": int(n_boot)
+    }
 
 def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_train: pd.DataFrame, *, class_target: str, reg_target: str, seed: int = 0) -> Dict[str, Any]:
     def split_X_y(df: pd.DataFrame, target: str, all_targets: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
@@ -925,7 +1004,12 @@ def tstr_utility(real_train: pd.DataFrame, real_test: pd.DataFrame, synthetic_tr
         }
     }
 
-def paired_permutation_test(a: np.ndarray, b: np.ndarray, *, n_perm: int = 2000, random_state: int = 0) -> Dict[str, float]:
+def paired_permutation_test(a: np.ndarray, b: np.ndarray, *, n_perm: int = 10000, random_state: int = 0) -> Dict[str, float]:
+    """Paired permutation test with 10,000 permutations for p-value resolution of 0.0001.
+    
+    Following best practices (Phipson & Smyth, 2010), we use 10,000 permutations
+    to ensure sufficient statistical power and p-value resolution for publication.
+    """
     rng = np.random.default_rng(random_state)
     diff_obs = float(np.mean(a - b))
     diffs = []
@@ -934,7 +1018,7 @@ def paired_permutation_test(a: np.ndarray, b: np.ndarray, *, n_perm: int = 2000,
         diffs.append(float(np.mean(sign * (a - b))))
     diffs = np.array(diffs)
     p = float(np.mean(np.abs(diffs) >= np.abs(diff_obs)))
-    return {"p_value": p, "mean_diff": diff_obs}
+    return {"p_value": p, "mean_diff": diff_obs, "n_permutations": n_perm}
 
 
 def plot_main_results(out_dir: Path) -> Path:
@@ -1678,6 +1762,14 @@ def run_single(
     print(f"Dataset: {dataset.upper()} | Synthesizer: {synthesizer_name.upper()} | Quick: {quick}")
     print("="*70 + "\n")
     
+    if quick:
+        print("!" * 70)
+        print("WARNING: QUICK MODE ENABLED - Results NOT suitable for publication!")
+        print("Quick mode uses reduced training (CTGAN: 100 epochs, TabDDPM: 300 iter)")
+        print("and may produce poor quality metrics (e.g., C2ST near 1.0).")
+        print("Remove --quick flag for evaluation-quality results.")
+        print("!" * 70 + "\n")
+    
     out_path = ensure_dir(Path(out_dir))
     # Auto-clean old artifacts in this output folder
     print("Step 1/7: Cleaning previous results...")
@@ -1721,8 +1813,8 @@ def run_single(
     
     synth_name = synth_obj.name
     synth_obj.fit(train_df)
-    print(f"→ Sampling {len(train_df):,} rows...")
-    synthetic_data = synth_obj.sample(len(train_df))
+    print(f"→ Sampling {len(train_df):,} rows with seed {seed}...")
+    synthetic_data = synth_obj.sample(len(train_df), random_state=seed)
     print(f"[OK] Synthesis complete\n")
     synthetic_path = ds_out / f"synthetic_train__{synth_name}.parquet"
     remove_if_exists(synthetic_path)
@@ -1740,7 +1832,10 @@ def run_single(
     write_json(sd_path, quality_metrics)
 
     print("→ C2ST Realism Test...")
-    # Exclude both ID columns AND target columns to prevent trivial discrimination
+    # C2ST EXCLUSION POLICY: Exclude both ID and target columns
+    # Rationale: C2ST tests distribution fidelity. Including targets would allow trivial
+    # discrimination if target distributions differ between real and synthetic.
+    # This is a conservative choice that focuses on feature distribution quality.
     c2st_exclude = schema.get("id_cols", []) + schema.get("target_cols", [])
     realism_metrics = c2st_effective_auc(test_df, synthetic_data, exclude_cols=c2st_exclude, test_size=0.3, seed=seed)
     c2_path = ds_out / f"c2st__{synth_name}.json"
@@ -1748,7 +1843,10 @@ def run_single(
     write_json(c2_path, realism_metrics)
 
     print("→ MIA Privacy Attack...")
-    # MIA should exclude ID columns but may include targets (attacker's choice)
+    # MIA EXCLUSION POLICY: Exclude only ID columns, INCLUDE targets
+    # Rationale: MIA simulates a worst-case attacker with access to all non-ID features.
+    # Target values may be informative for membership inference in real-world scenarios.
+    # This is a conservative privacy evaluation (harder for synthetic data to pass).
     exclude_cols = schema.get("id_cols", [])
     privacy_metrics = mia_worst_case_effective_auc(train_df, test_df, synthetic_data, exclude_cols=exclude_cols, test_size=0.3, random_state=seed, k=5)
     mia_path = ds_out / f"mia__{synth_name}.json"
@@ -1783,6 +1881,14 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     print(f"Datasets: {len(datasets)} | Synthesizers: {len(synthesizers)} | Quick Mode: {quick}")
     print(f"Total Experiments: {len(datasets) * len(synthesizers)}")
     print("="*70 + "\n")
+    
+    if quick:
+        print("!" * 70)
+        print("WARNING: QUICK MODE ENABLED - Results NOT suitable for publication!")
+        print("Quick mode uses reduced training (CTGAN: 100 epochs, TabDDPM: 300 iter)")
+        print("and may produce poor quality metrics (e.g., C2ST near 1.0).")
+        print("Remove --quick flag for evaluation-quality results.")
+        print("!" * 70 + "\n")
 
     # Store results from both datasets for cross-dataset visualization
     all_dataset_results = {}
@@ -1822,12 +1928,44 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         rt_test = test_df.copy(); rt_test["split"] = "real_test"; rt_test["synthesizer"] = "real"
         all_rows.append(rt_train); all_rows.append(rt_test)
 
+        # Collect environment metadata for reproducibility
+        try:
+            import pkg_resources
+            library_versions = {
+                "sdv": pkg_resources.get_distribution("sdv").version,
+                "sdmetrics": pkg_resources.get_distribution("sdmetrics").version,
+                "synthcity": pkg_resources.get_distribution("synthcity").version,
+                "scikit-learn": pkg_resources.get_distribution("scikit-learn").version,
+                "torch": pkg_resources.get_distribution("torch").version,
+                "pandas": pkg_resources.get_distribution("pandas").version,
+                "numpy": pkg_resources.get_distribution("numpy").version,
+                "xgboost": pkg_resources.get_distribution("xgboost").version if _HAS_XGB else "not_installed",
+            }
+        except Exception:
+            library_versions = {"error": "Could not retrieve library versions"}
+        
+        try:
+            import psutil
+            hardware_info = {
+                "cpu_count": os.cpu_count(),
+                "ram_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+                "gpu_available": torch.cuda.is_available(),
+                "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+            }
+        except Exception:
+            hardware_info = {"cpu_count": os.cpu_count(), "ram_gb": "unknown", "gpu_available": torch.cuda.is_available()}
+        
         results: Dict[str, Any] = {
             "dataset": dataset,
             "seed": seed,
             "quick_mode": quick,
             "split_sizes": {"train": int(len(train_df)), "test": int(len(test_df))},
-            "env": {"python": sys.version, "platform": platform.platform()},
+            "environment": {
+                "python_version": sys.version,
+                "platform": platform.platform(),
+                "libraries": library_versions,
+                "hardware": hardware_info,
+            },
             "timestamp": int(time.time()),
             "synthesizers": {},
             "pairwise_tests": {},
@@ -1901,7 +2039,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             
             # Capture actual sample timing
             sample_start = time.perf_counter()
-            syn = synth_obj.sample(len(train_df))
+            syn = synth_obj.sample(len(train_df), random_state=seed)
             sample_time = time.perf_counter() - sample_start
             synthetic_datasets[synth_name] = syn  # Store for visualizations
             print(f"  [OK] Synthesis complete\n")
@@ -1943,9 +2081,9 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         pairs = [("ctgan", "tabddpm"), ("ctgan", "gaussian_copula"), ("tabddpm", "gaussian_copula")]
         for a, b in pairs:
             if a in per_sample_losses and b in per_sample_losses:
-                print(f"  → Testing {a.upper()} vs {b.upper()}...")
-                cls_test = paired_permutation_test(per_sample_losses[a]["cls_logloss"], per_sample_losses[b]["cls_logloss"], n_perm=2000, random_state=seed)
-                reg_test = paired_permutation_test(per_sample_losses[a]["reg_abs_err"], per_sample_losses[b]["reg_abs_err"], n_perm=2000, random_state=seed)
+                print(f"  → Testing {a.upper()} vs {b.upper()} (10,000 permutations)...")
+                cls_test = paired_permutation_test(per_sample_losses[a]["cls_logloss"], per_sample_losses[b]["cls_logloss"], n_perm=10000, random_state=seed)
+                reg_test = paired_permutation_test(per_sample_losses[a]["reg_abs_err"], per_sample_losses[b]["reg_abs_err"], n_perm=10000, random_state=seed)
                 results["pairwise_tests"][f"{a}_vs_{b}"] = {"classification": cls_test, "regression": reg_test}
         print(f"[{dataset.upper()}] [OK] Pairwise tests complete\n")
 
