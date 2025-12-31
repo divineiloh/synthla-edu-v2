@@ -1152,7 +1152,7 @@ def create_cross_dataset_visualizations(
             if idx == 0:
                 ax.legend(loc='lower right', frameon=True, shadow=True)
         
-        fig.suptitle('Classification Utility: Dropout/Correctness Prediction (RandomForest)', 
+        fig.suptitle('Classification Utility: Binary Target Prediction (RandomForest)', 
                     fontsize=14, fontweight='bold', y=1.02)
         fig.tight_layout()
         
