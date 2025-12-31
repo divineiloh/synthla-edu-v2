@@ -191,6 +191,75 @@ Cross-dataset visualizations in `runs/figures/`:
 | **Bootstrap CI** | 95% | Confidence intervals from 1,000 resamples per metric |
 | **Permutation test p-value** | [0, 1] | Significance of pairwise model differences (lower = significant) |
 
+## Statistical Methods
+
+### Multiple Testing Correction
+
+We control family-wise error rate (FWER) using **Bonferroni correction** across all pairwise synthesizer comparisons:
+
+- **Total tests**: 6 (3 synthesizer pairs × 2 metrics: classification + regression)
+- **Original α**: 0.05
+- **Adjusted α**: 0.05/6 = **0.0083**
+- **Interpretation**: Reject H₀ if p < 0.0083
+- **Rationale**: Controls Type I error rate at 5% across the entire family of tests
+
+All pairwise comparisons use **paired permutation tests** (10,000 permutations) for p-value estimation, ensuring non-parametric robustness without distributional assumptions.
+
+### Effect Size Quantification
+
+Effect sizes are quantified using **Cohen's d** for all pairwise comparisons:
+
+```
+Cohen's d = (mean difference) / (pooled standard deviation)
+```
+
+**Interpretation benchmarks** (standard thresholds):
+- |d| < 0.2: **negligible** effect
+- 0.2 ≤ |d| < 0.5: **small** effect  
+- 0.5 ≤ |d| < 0.8: **medium** effect
+- |d| ≥ 0.8: **large** effect
+
+**Purpose**: Distinguish statistical significance ("is there a difference?") from practical significance ("does the difference matter?"). A result can be statistically significant (p < 0.0083) yet have negligible practical impact (d < 0.2).
+
+### Evaluation Design Rationale
+
+**C2ST (Classifier Two-Sample Test) — Distribution Fidelity**
+- **Excluded features**: ID columns + target variables
+- **Rationale**: Tests whether synthetic data preserves the *feature distribution* of real data. Including targets would allow trivial discrimination if target distributions differ between real and synthetic (e.g., different class balance), conflating fidelity with target preservation.
+- **Interpretation**: Measures detectability of synthetic data based purely on feature quality.
+
+**MIA (Membership Inference Attack) — Worst-Case Privacy**
+- **Excluded features**: ID columns only (targets INCLUDED)
+- **Rationale**: Simulates a worst-case attacker with access to all non-ID features, including potentially sensitive targets. This conservative evaluation reflects real-world scenarios where adversaries may observe outcome variables.
+- **Interpretation**: Measures membership leakage risk under maximum adversarial knowledge.
+
+**Design principle**: Different exclusion policies reflect different threat models—C2ST evaluates fidelity (features only), while MIA evaluates privacy (all observable data).
+
+### Confidence Intervals & Uncertainty Quantification
+
+- **Bootstrap CIs**: 1,000 resamples per metric (95% intervals)
+- **Small sample handling**: Reduces bootstrap iterations to 500 for n < 50 with warnings for n < 30
+- **Permutation tests**: 10,000 permutations for p-value resolution of 0.0001
+- **Stratification**: Train/test splits stratified by classification target to preserve class balance
+
+### Hyperparameter Justification
+
+**Random Forest** (C2ST, MIA, TSTR):
+- 300 trees (sufficient for convergence; diminishing returns beyond 300)
+- No hyperparameter tuning: RF is robust to defaults for discrimination tasks (Hastie et al., 2009)
+
+**CTGAN**:
+- Standard: 300 epochs (Xu et al., 2019)
+- Quick mode: 100 epochs (3× speedup)
+
+**TabDDPM**:
+- Standard: 1200 iterations (Kotelnikov et al., 2023)
+- Quick mode: 300 iterations (4× speedup)
+- Rationale: Diffusion models require more iterations for convergence (forward + reverse process)
+
+**Gaussian Copula**:
+- No iterative training (closed-form estimation)
+
 ### Example Results
 
 **⚠️ DISCLAIMER**: Results below are **illustrative examples** showing the output format. Actual values vary by dataset, synthesizer, and training mode.
