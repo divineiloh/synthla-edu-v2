@@ -1,6 +1,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+# Patch torch.amp for fastai compatibility with PyTorch 2.2.2
+# This must happen BEFORE any synthcity imports
+import sys
+import torch
+import torch.cuda.amp as _cuda_amp
+import torch.cuda.amp.grad_scaler as _grad_scaler_module
+torch.amp.GradScaler = _cuda_amp.GradScaler
+torch.amp.grad_scaler = _grad_scaler_module
+sys.modules['torch.amp.grad_scaler'] = _grad_scaler_module
+
 import argparse
 import json
 from dataclasses import dataclass
