@@ -2305,7 +2305,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         # TSTR vs TRTR comparisons (utility gap significance)
         print(f"  > Testing TSTR vs TRTR (utility gap significance)...")
         results["tstr_vs_trtr"] = {}
-        for synth_name in synth_names:
+        for synth_name in synthesizers:
             if synth_name in results["synthesizers"]:
                 util = results["synthesizers"][synth_name]["utility"]
                 # Classification: TSTR vs TRTR
