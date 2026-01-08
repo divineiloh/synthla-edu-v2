@@ -51,3 +51,6 @@ runs/
 
 # Local notes (not for repo)
 PAPER_ADDITIONS_NOTES.md
+
+# Generated paper-result summaries (local artifacts)
+PAPER_RESULTS*.txt
