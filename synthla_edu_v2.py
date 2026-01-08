@@ -2043,9 +2043,34 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     # Using GC + CTGAN + TabDDPM
     synthesizers = ["gaussian_copula", "ctgan", "tabddpm"]
 
+    # Set up automatic logging to capture all experiment details
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = base_out / f"experiment_log_{timestamp}.txt"
+    
+    # Tee output to both console and log file
+    class TeeOutput:
+        def __init__(self, *files):
+            self.files = files
+        def write(self, data):
+            for f in self.files:
+                f.write(data)
+                f.flush()
+        def flush(self):
+            for f in self.files:
+                f.flush()
+    
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    log_handle = open(log_file, 'w', encoding='utf-8')
+    sys.stdout = TeeOutput(original_stdout, log_handle)
+    sys.stderr = TeeOutput(original_stderr, log_handle)
+
     print("\n" + "="*70)
     print("SYNTHLA-EDU V2: Full Experimental Matrix")
     print("="*70)
+    print(f"Execution started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Log file: {log_file}")
     print(f"Datasets: {len(datasets)} | Synthesizers: {len(synthesizers)} | Quick Mode: {quick}")
     print(f"Total Experiments: {len(datasets) * len(synthesizers)}")
     print("="*70 + "\n")
@@ -2410,12 +2435,25 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     for fig_path in saved_figures:
         print(f"  - {fig_path.name}")
 
+    # Calculate total execution time
+    import datetime
+    end_time = datetime.datetime.now()
+    print(f"\nExecution completed: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
     print("\n" + "="*70)
     print("SYNTHLA-EDU V2: All Experiments Complete")
     print("="*70)
     print(f"Results saved to: {base_out}")
     print(f"Figures saved to: {figures_dir}")
+    print(f"Log file saved to: {log_file}")
     print("="*70 + "\n")
+    
+    # Close log file and restore stdout/stderr
+    sys.stdout = original_stdout
+    sys.stderr = original_stderr
+    log_handle.close()
+    
+    print(f"✓ Complete execution log saved to: {log_file}")
     
     return base_out
 
