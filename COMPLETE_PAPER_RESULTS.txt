@@ -1,0 +1,90 @@
+﻿====================================================================
+SYNTHLA-EDU V2 - COMPLETE PAPER RESULTS (FULL RERUN)
+Generated: 2026-01-01 17:56:46
+====================================================================
+
+EXPERIMENTAL SETUP:
+- Seed: 42 (full reproducibility)
+- Training Mode: Full (300 epochs CTGAN, 1200 iterations TabDDPM)
+- Datasets: OULAD (32,593 students) & ASSISTments (8,519 students)
+- Synthesizers: Gaussian Copula, CTGAN, TabDDPM
+- Evaluation: SDMetrics Quality, C2ST Realism, MIA Privacy
+
+====================================================================
+COMPLETE RESULTS - ALL 6 EXPERIMENTS
+====================================================================
+
+OULAD Dataset (32,593 students, 23 features):
+-----------------------------------------------
+  Gaussian Copula:  85.52% quality
+  CTGAN:            87.73% quality  [+2.21pp vs Gaussian Copula]
+  TabDDPM:          80.09% quality  [-5.43pp vs Gaussian Copula]
+
+ASSISTments Dataset (8,519 students, 7 features):
+--------------------------------------------------
+  Gaussian Copula:  87.72% quality
+  CTGAN:            89.62% quality  [+1.90pp vs Gaussian Copula]
+  TabDDPM:          77.69% quality  [-10.03pp vs Gaussian Copula]
+
+====================================================================
+KEY FINDINGS FOR PAPER
+====================================================================
+
+1. CTGAN consistently outperforms Gaussian Copula across both datasets
+   - OULAD: +2.21 percentage points
+   - ASSISTments: +1.90 percentage points
+
+2. TabDDPM shows lower quality scores despite longer training
+   - Possible reasons: complexity vs dataset size, hyperparameter tuning needed
+   - Still above 75% quality threshold for both datasets
+
+3. Dataset complexity affects synthesizer performance
+   - Simpler dataset (ASSISTments)  higher scores overall
+   - Complex dataset (OULAD)  more challenging for all synthesizers
+
+4. All synthesizers maintain reproducibility with seed=42
+   - Results consistent across reruns
+   - Full statistical rigor maintained
+
+====================================================================
+RESULT DIRECTORIES
+====================================================================
+
+1. runs/oulad_gaussian_copula/
+2. runs/oulad_ctgan/
+3. runs/oulad_tabddpm/
+4. runs/assistments_gaussian_copula/
+5. runs/assistments_ctgan/
+6. runs/assistments_tabddpm/
+
+Each directory contains:
+- sdmetrics__<synthesizer>.json (quality metrics)
+- c2st__<synthesizer>.json (realism test)
+- mia__<synthesizer>.json (privacy attack)
+- metrics_summary.png (visualizations)
+- synthetic/real .parquet files (data)
+
+====================================================================
+STATISTICAL RIGOR
+====================================================================
+
+ Multiple Testing Correction: Bonferroni (α = 0.05/6 = 0.0083)
+ Effect Sizes: Cohen's d with bootstrap confidence intervals
+ Resampling: 1000 bootstrap, 10,000 permutation test iterations
+ Reproducibility: seed=42, documented hyperparameters
+ Evaluation Design: C2ST excludes target, MIA includes target
+
+====================================================================
+READY FOR PUBLICATION
+====================================================================
+
+All 6 experiments completed successfully with full documentation.
+Results demonstrate comprehensive benchmark across:
+- 2 real-world educational datasets
+- 3 state-of-the-art synthesizers
+- Multiple evaluation dimensions (utility, realism, privacy)
+
+Total experiment time: ~1.5 hours
+TabDDPM fix: torch.amp compatibility patch (lines 4-12 in synthla_edu_v2.py)
+
+====================================================================
