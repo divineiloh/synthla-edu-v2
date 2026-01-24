@@ -16,9 +16,17 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import warnings
 
 import numpy as np
 import pandas as pd
+
+# Suppress expected warnings that don't indicate errors
+warnings.filterwarnings('ignore', category=RuntimeWarning, message='invalid value encountered in divide')
+warnings.filterwarnings('ignore', category=RuntimeWarning, message='invalid value encountered in cast')
+warnings.filterwarnings('ignore', category=UserWarning, message='pkg_resources is deprecated')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*IDGenerator.*renamed.*IndexGenerator.*')
+
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
@@ -276,13 +284,17 @@ def _aggregate_studentvle_streaming(
     keys: List[str],
     *,
     min_vle_clicks_clip: float = 0.0,
-    chunksize: int = 250_000,
+    chunksize: int = 500_000,
 ) -> pd.DataFrame:
     # Stream the giant file to avoid large contiguous allocations during pandas factorization/groupby.
     # Preserve the original feature set while staying memory-safe.
+    import sys
     usecols = [c for c in (keys + ["sum_click", "id_site", "date"]) if c]
     acc_sum: Dict[tuple, float] = {}
     acc_count: Dict[tuple, int] = {}
+    
+    print(f"[VLE Aggregation] Processing {studentvle_csv.name} in chunks...", flush=True)
+    print(f"[VLE Aggregation] Note: This may take 2-5 minutes for large datasets (10M+ rows)", flush=True)
 
     # Auto-detect ranges from data to avoid hardcoded caps
     site_min, site_max = None, None
@@ -293,10 +305,14 @@ def _aggregate_studentvle_streaming(
     acc_days_bits: Dict[tuple, bytearray] = {}
     
     first_pass = True
+    chunk_num = 0
 
     def _set_bits(bitarr: bytearray, values: np.ndarray, *, offset: int, cap_bits: int) -> None:
-        # values may be float with NaN; coerce safely
-        vals = pd.Series(values).dropna().astype(int).to_numpy()
+        # values may be float with NaN; coerce safely - optimized to avoid Series overhead
+        if len(values) == 0:
+            return
+        # Filter NaN and convert directly
+        vals = values[~pd.isna(values)].astype(int)
         for v in vals:
             idx = v + offset
             if idx < 0 or idx >= cap_bits:
@@ -366,6 +382,7 @@ def _aggregate_studentvle_streaming(
                     acc_days_bits[k] = bitarr
                 _set_bits(bitarr, np.asarray(arr), offset=date_offset, cap_bits=date_cap_bits)
 
+    print(f"\n[VLE Aggregation] Finalizing aggregation for {len(acc_sum):,} student groups...", flush=True)
     rows = []
     for k, total in acc_sum.items():
         nrec = acc_count.get(k, 0)
@@ -379,6 +396,7 @@ def _aggregate_studentvle_streaming(
     )
     vle_feat["mean_vle_clicks"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_records"].replace(0, np.nan)
     vle_feat["clicks_per_active_day"] = vle_feat["total_vle_clicks"] / vle_feat["n_vle_days"].replace(0, np.nan)
+    print(f"[VLE Aggregation] Complete! Generated {len(vle_feat):,} feature rows", flush=True)
     return vle_feat
 
 
@@ -1316,7 +1334,19 @@ def create_cross_dataset_visualizations(
     all_train_data: Dict[str, pd.DataFrame],
     all_synthetic_data: Dict[str, Dict[str, pd.DataFrame]]
 ) -> List[Path]:
-    """Generate 11 cross-dataset comparison visualizations.
+    """Generate 10 publication-ready visualizations (separate per dataset where applicable).
+    
+    Figures generated:
+        fig1: Classification Utility - OULAD
+        fig2: Classification Utility - ASSISTMENTS
+        fig3: Regression Utility - OULAD  
+        fig4: Regression Utility - ASSISTMENTS
+        fig5: Statistical Quality (SDMetrics)
+        fig6: Privacy Preservation (MIA)
+        fig7: Performance Heatmap - OULAD
+        fig8: Performance Heatmap - ASSISTMENTS
+        fig9: Per-Attacker Privacy - OULAD
+        fig10: Per-Attacker Privacy - ASSISTMENTS
     
     Args:
         figures_dir: Directory to save figures
@@ -1368,12 +1398,11 @@ def create_cross_dataset_visualizations(
     datasets = list(all_results.keys())
     synth_names = ['gaussian_copula', 'ctgan', 'tabddpm']
     
-    # --- Figure 1: Classification Utility (Cross-Dataset) ---
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
+    # --- Figures 1-2: Classification Utility (Separate per dataset) ---
+    for ds_idx, dataset in enumerate(datasets, 1):
+        try:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+            
             results = all_results[dataset]
             synths = results['synthesizers']
             
@@ -1384,38 +1413,50 @@ def create_cross_dataset_visualizations(
             
             bars = ax.bar(models, aucs, color=['#999999'] + [colors[s] for s in synth_names], 
                          edgecolor='black', linewidth=1.2)
-            ax.axhline(y=baseline_auc, color='red', linestyle='--', linewidth=2, 
-                      label=f'Real Baseline ({baseline_auc:.3f})', alpha=0.7)
             
+            # Draw baseline with offset to avoid contact with bars
+            bar_width = bars[0].get_width()
+            x_min = bars[0].get_x() - bar_width * 0.3
+            x_max = bars[-1].get_x() + bars[-1].get_width() + bar_width * 0.3
+            
+            ax.plot([x_min, x_max], [baseline_auc, baseline_auc], 
+                    color='red', linestyle='--', linewidth=2.5, 
+                    label=f'Real Baseline ({baseline_auc:.3f})', alpha=0.8, zorder=10)
+            
+            # Dynamic label offset
             for bar, val in zip(bars, aucs):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                       f'{val:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+                if val < baseline_auc and (baseline_auc - val) < 0.02:
+                    y_offset = 0.022
+                elif abs(val - baseline_auc) < 0.005:
+                    y_offset = 0.015
+                else:
+                    y_offset = 0.008
+                
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + y_offset, 
+                       f'{val:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
             
-            ax.set_ylabel('AUC Score', fontsize=12, fontweight='bold')
-            ax.set_xlabel('Model', fontsize=12, fontweight='bold')
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
-            ax.set_ylim(0.5, 1.0)
+            ax.set_ylabel('AUC Score', fontsize=13, fontweight='bold')
+            ax.set_xlabel('', fontsize=13, fontweight='bold')
+            ax.set_title(f'Classification Utility - {dataset.upper()} Dataset', 
+                        fontsize=12, fontweight='bold', pad=15)
+            ax.set_ylim(0.5, 1.05)
             ax.grid(axis='y', alpha=0.3, linestyle='--')
-            if idx == 0:
-                ax.legend(loc='lower right', frameon=True, shadow=True)
-        
-        fig.suptitle('Classification Utility: Binary Target Prediction (RandomForest)', 
-                    fontsize=14, fontweight='bold', y=1.02)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig1_classification_utility_comparison.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 1: {e}")
+            ax.legend(loc='lower right', frameon=True, shadow=True, fontsize=11)
+            ax.tick_params(axis='x', labelsize=13)
+            
+            fig.tight_layout()
+            path = figures_dir / f'fig{ds_idx}.png'
+            fig.savefig(path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            saved_figs.append(path)
+        except Exception as e:
+            print(f"Warning: Could not create Figure {ds_idx} (Classification {dataset}): {e}")
     
-    # --- Figure 2: Regression Utility (Cross-Dataset) ---
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
+    # --- Figures 3-4: Regression Utility (Separate per dataset) ---
+    for ds_idx, dataset in enumerate(datasets, 3):
+        try:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+            
             results = all_results[dataset]
             synths = results['synthesizers']
             
@@ -1425,37 +1466,52 @@ def create_cross_dataset_visualizations(
             
             bars = ax.bar(models, maes, color=['#999999'] + [colors[s] for s in synth_names], 
                          edgecolor='black', linewidth=1.2)
-            ax.axhline(y=baseline_mae, color='red', linestyle='--', linewidth=2, 
-                      label=f'Real Baseline ({baseline_mae:.2f})', alpha=0.7)
             
+            # Draw baseline with offset
+            bar_width = bars[0].get_width()
+            x_min = bars[0].get_x() - bar_width * 0.3
+            x_max = bars[-1].get_x() + bars[-1].get_width() + bar_width * 0.3
+            
+            ax.plot([x_min, x_max], [baseline_mae, baseline_mae], 
+                    color='red', linestyle='--', linewidth=2.5, 
+                    label=f'Real Baseline ({baseline_mae:.2f})', alpha=0.8, zorder=10)
+            
+            # Dynamic offset based on data scale
+            max_mae = max(maes)
             for bar, val in zip(bars, maes):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
-                       f'{val:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+                distance_to_baseline = abs(val - baseline_mae)
+                if distance_to_baseline < (max_mae * 0.05):
+                    y_offset = max_mae * 0.025
+                elif distance_to_baseline < (max_mae * 0.15):
+                    y_offset = max_mae * 0.015
+                else:
+                    y_offset = max_mae * 0.01
+                
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + y_offset, 
+                       f'{val:.2f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
             
-            ax.set_ylabel('Mean Absolute Error (Lower is Better)', fontsize=12, fontweight='bold')
-            ax.set_xlabel('Model', fontsize=12, fontweight='bold')
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
+            ax.set_ylabel('Mean Absolute Error', fontsize=13, fontweight='bold')
+            ax.set_xlabel('', fontsize=13, fontweight='bold')
+            ax.set_title(f'Regression Utility - {dataset.upper()} Dataset', 
+                        fontsize=12, fontweight='bold', pad=15)
             ax.grid(axis='y', alpha=0.3, linestyle='--')
-            if idx == 0:
-                ax.legend(loc='upper right', frameon=True, shadow=True)
-        
-        fig.suptitle('Regression Utility: Target Prediction (Ridge Regression)', 
-                    fontsize=14, fontweight='bold', y=1.02)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig2_regression_utility_comparison.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 2: {e}")
+            ax.legend(loc='upper right', frameon=True, shadow=True, fontsize=11)
+            ax.tick_params(axis='x', labelsize=13)
+            
+            fig.tight_layout()
+            path = figures_dir / f'fig{ds_idx}.png'
+            fig.savefig(path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            saved_figs.append(path)
+        except Exception as e:
+            print(f"Warning: Could not create Figure {ds_idx} (Regression {dataset}): {e}")
     
-    # --- Figure 3: Data Quality (Cross-Dataset) ---
+    # --- Figure 5: Statistical Quality (SDMetrics) ---
     try:
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(8, 6))
         
-        x = np.arange(len(synth_names))
-        width = 0.35
+        x = np.arange(len(synth_names)) * 1.15
+        width = 0.4
         
         for idx, dataset in enumerate(datasets):
             results = all_results[dataset]
@@ -1468,32 +1524,39 @@ def create_cross_dataset_visualizations(
                          edgecolor='black', linewidth=1.2)
             
             for bar, val in zip(bars, quality_scores):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
-                       f'{val:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                if val > 95:
+                    y_offset = -5
+                    va = 'top'
+                else:
+                    y_offset = 1
+                    va = 'bottom'
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + y_offset, 
+                       f'{val:.1f}%', ha='center', va=va, fontsize=11, fontweight='bold')
         
-        ax.set_ylabel('Quality Score (%)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Synthesizer', fontsize=12, fontweight='bold')
-        ax.set_title('Statistical Quality (SDMetrics)', fontsize=14, fontweight='bold', pad=20)
+        ax.set_ylabel('Quality Score (%)', fontsize=13, fontweight='bold')
+        ax.set_xlabel('', fontsize=13, fontweight='bold')
+        ax.set_title('Statistical Quality (SDMetrics)', fontsize=12, fontweight='bold', pad=15)
         ax.set_xticks(x)
         ax.set_xticklabels([s.replace('_', ' ').title() for s in synth_names])
         ax.set_ylim(0, 100)
-        ax.legend(frameon=True, shadow=True)
+        ax.legend(frameon=True, shadow=True, fontsize=11)
         ax.grid(axis='y', alpha=0.3, linestyle='--')
-        fig.tight_layout()
+        ax.tick_params(axis='x', labelsize=13)
         
-        path = figures_dir / 'fig3_data_quality_comparison.png'
+        fig.tight_layout()
+        path = figures_dir / 'fig5.png'
         fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         saved_figs.append(path)
     except Exception as e:
-        print(f"Warning: Could not create Figure 3: {e}")
+        print(f"Warning: Could not create Figure 5 (Quality): {e}")
     
-    # --- Figure 4: Privacy (MIA Cross-Dataset) ---
+    # --- Figure 6: Privacy Preservation (MIA) ---
     try:
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(8, 6))
         
-        x = np.arange(len(synth_names))
-        width = 0.35
+        x = np.arange(len(synth_names)) * 1.15
+        width = 0.4
         
         for idx, dataset in enumerate(datasets):
             results = all_results[dataset]
@@ -1506,43 +1569,55 @@ def create_cross_dataset_visualizations(
                          edgecolor='black', linewidth=1.2)
             
             for bar, val in zip(bars, mia_scores):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                       f'{val:.3f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                if abs(val - 0.5) < 0.02:
+                    y_offset = 0.025
+                else:
+                    y_offset = 0.01
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + y_offset, 
+                       f'{val:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
         
-        ax.axhline(y=0.5, color='green', linestyle='--', linewidth=2, 
-                  label='Ideal Privacy (0.5)', alpha=0.7)
-        ax.set_ylabel('MIA Effective AUC (Lower is Better)', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Synthesizer', fontsize=12, fontweight='bold')
+        ax.axhline(y=0.5, color='green', linestyle='--', linewidth=2.5, 
+                  label='Ideal Privacy (0.5)', alpha=0.8, zorder=10)
+        ax.set_ylabel('MIA Effective AUC', fontsize=13, fontweight='bold')
+        ax.set_xlabel('', fontsize=13, fontweight='bold')
         ax.set_title('Privacy Preservation: Membership Inference Attack', 
-                    fontsize=14, fontweight='bold', pad=20)
+                    fontsize=12, fontweight='bold', pad=15)
         ax.set_xticks(x)
         ax.set_xticklabels([s.replace('_', ' ').title() for s in synth_names])
         ax.set_ylim(0, 1.0)
-        ax.legend(frameon=True, shadow=True)
+        ax.legend(frameon=True, shadow=True, fontsize=11)
         ax.grid(axis='y', alpha=0.3, linestyle='--')
-        fig.tight_layout()
+        ax.tick_params(axis='x', labelsize=13)
         
-        path = figures_dir / 'fig4_privacy_mia_comparison.png'
+        fig.tight_layout()
+        path = figures_dir / 'fig6.png'
         fig.savefig(path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         saved_figs.append(path)
     except Exception as e:
-        print(f"Warning: Could not create Figure 4: {e}")
+        print(f"Warning: Could not create Figure 6 (Privacy): {e}")
     
-    # --- Figure 5: Performance Heatmap (All Metrics) ---
-    try:
-        fig, ax = plt.subplots(figsize=(14, 8))
-        
-        # Build matrix: rows = dataset_synthesizer, cols = metrics
-        row_labels = []
-        metrics_data = []
-        metric_names = ['Quality', 'Realism', 'Privacy', 'Class. AUC', 'Regr. MAE']
-        
-        for dataset in datasets:
-            synths = all_results[dataset]['synthesizers']
+    # --- Figures 7-8: Performance Heatmap (Separate per dataset) ---
+    for ds_idx, dataset in enumerate(datasets, 7):
+        try:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            
+            row_labels = []
+            metrics_data = []
+            metric_names = ['Quality', 'Realism', 'Privacy', 'Class. AUC', 'Regr. MAE']
+            
+            results = all_results[dataset]
+            synths = results['synthesizers']
             baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
+            
             for s in synth_names:
-                row_labels.append(f"{dataset.upper()}\n{s.replace('_',' ').title()}")
+                # Format label: Gaussian Copula on two lines
+                if s == 'gaussian_copula':
+                    label = 'Gaussian\nCopula'
+                else:
+                    label = s.replace('_', ' ').title()
+                row_labels.append(label)
+                
                 row = [
                     synths[s]['sdmetrics']['overall_score'] * 100,
                     score_from_effective_auc(synths[s]['c2st']['effective_auc']),
@@ -1551,328 +1626,94 @@ def create_cross_dataset_visualizations(
                     score_from_mae(synths[s]['utility']['regression']['ridge_mae'], baseline_mae)
                 ]
                 metrics_data.append(row)
-        
-        metrics_array = np.array(metrics_data)
-        
-        im = ax.imshow(metrics_array, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
-        
-        ax.set_xticks(np.arange(len(metric_names)))
-        ax.set_yticks(np.arange(len(row_labels)))
-        ax.set_xticklabels(metric_names, fontsize=11)
-        ax.set_yticklabels(row_labels, fontsize=9)
-        
-        # Conditionally render text if cells are large enough to prevent overlap
-        cell_width = fig.get_figwidth() / len(metric_names)
-        cell_height = fig.get_figheight() / len(row_labels)
-        min_cell_size = 0.8  # inches (increased for publication readability)
-        
-        if cell_width > min_cell_size and cell_height > min_cell_size:
+            
+            metrics_array = np.array(metrics_data)
+            
+            im = ax.imshow(metrics_array, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
+            
+            ax.set_xticks(np.arange(len(metric_names)))
+            ax.set_yticks(np.arange(len(row_labels)))
+            ax.set_xticklabels(metric_names, fontsize=13)
+            ax.set_yticklabels(row_labels, fontsize=13)
+            
             for i in range(len(row_labels)):
                 for j in range(len(metric_names)):
                     ax.text(j, i, f'{metrics_array[i, j]:.1f}', 
-                           ha='center', va='center', color='black', fontsize=9, fontweight='bold')
-        
-        ax.set_title('Cross-Dataset Performance Heatmap (Higher is Better)', 
-                    fontsize=14, fontweight='bold', pad=20)
-        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('Score (%)', fontsize=11, fontweight='bold')
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig5_performance_heatmap.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 5: {e}")
+                           ha='center', va='center', color='black', fontsize=11, fontweight='bold')
+            
+            ax.set_title(f'Performance Heatmap - {dataset.upper()} Dataset', 
+                        fontsize=12, fontweight='bold', pad=15)
+            cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label('Score (%)', fontsize=12, fontweight='bold')
+            cbar.ax.tick_params(labelsize=10)
+            
+            ax.set_xlabel('', fontsize=13, fontweight='bold')
+            
+            fig.tight_layout()
+            path = figures_dir / f'fig{ds_idx}.png'
+            fig.savefig(path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            saved_figs.append(path)
+        except Exception as e:
+            print(f"Warning: Could not create Figure {ds_idx} (Heatmap {dataset}): {e}")
     
-    # --- Figure 6: Radar Chart (Multi-Dimensional) ---
-    try:
-        from math import pi
-        
-        fig, axes = plt.subplots(1, 2, figsize=(16, 8), subplot_kw=dict(projection='polar'))
-        
-        categories = ['Quality', 'Class.\nUtility', 'Regr.\nUtility', 'Privacy', 'Realism']
-        N = len(categories)
-        angles = [n / float(N) * 2 * pi for n in range(N)]
-        angles += angles[:1]
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
-            synths = all_results[dataset]['synthesizers']
-            baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
-            
-            ax.set_theta_offset(pi / 2)
-            ax.set_theta_direction(-1)
-            ax.set_xticks(angles[:-1])
-            ax.set_xticklabels(categories, fontsize=11)
-            ax.set_ylim(0, 100)
-            ax.set_yticks([25, 50, 75, 100])
-            ax.set_yticklabels(['25', '50', '75', '100'], fontsize=9)
-            ax.grid(True, linestyle='--', alpha=0.5)
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold', y=1.08)
-            
-            for s in synth_names:
-                values = [
-                    synths[s]['sdmetrics']['overall_score'] * 100,
-                    synths[s]['utility']['classification']['rf_auc'] * 100,
-                    score_from_mae(synths[s]['utility']['regression']['ridge_mae'], baseline_mae),
-                    score_from_effective_auc(synths[s]['mia']['worst_case_effective_auc']),
-                    score_from_effective_auc(synths[s]['c2st']['effective_auc'])
-                ]
-                values += values[:1]
-                ax.plot(angles, values, 'o-', linewidth=2.5, 
-                       label=s.replace('_', ' ').title(), color=colors[s], markersize=8)
-                ax.fill(angles, values, alpha=0.15, color=colors[s])
-            
-            ax.legend(loc='upper right', bbox_to_anchor=(1.2, 1.1), fontsize=10, frameon=True, shadow=True)
-        
-        fig.suptitle('Multi-Dimensional Synthesizer Performance', fontsize=14, fontweight='bold', y=0.95)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig6_radar_chart.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 6: {e}")
+    # --- Figures 9-10: Per-Attacker Privacy (Separate per dataset) ---
+    attacker_colors = {
+        'logistic_regression': '#0173B2',
+        'random_forest': '#E69F00',
+        'xgboost': '#029E73'
+    }
     
-    # --- Figure 7: CI Forest Plot - Classification ---
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
+    for ds_idx, dataset in enumerate(datasets, 9):
+        try:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            
             synths = all_results[dataset]['synthesizers']
             
-            baseline_auc = synths[synth_names[0]]['utility']['classification']['trtr_rf_auc']
-            models_list = ['Real'] + [s.replace('_', ' ').title() for s in synth_names]
-            y_pos = np.arange(len(models_list))
-            
-            means = [baseline_auc] + [synths[s]['utility']['classification']['rf_auc'] for s in synth_names]
-            cis_low = [means[0]] + [synths[s]['utility']['classification']['rf_auc_ci']['ci_low'] for s in synth_names]
-            cis_high = [means[0]] + [synths[s]['utility']['classification']['rf_auc_ci']['ci_high'] for s in synth_names]
-            
-            errors_low = [abs(m - l) for m, l in zip(means, cis_low)]
-            errors_high = [abs(h - m) for m, h in zip(means, cis_high)]
-            
-            ax.errorbar(means, y_pos, xerr=[errors_low, errors_high], fmt='o', markersize=10, 
-                       capsize=8, capthick=2, linewidth=2, color='black', ecolor='gray')
-            
-            for i, (m, model) in enumerate(zip(means, models_list)):
-                ax.text(m + 0.02, i, f'{m:.3f}', va='center', fontsize=10, fontweight='bold')
-            
-            ax.set_yticks(y_pos)
-            ax.set_yticklabels(models_list, fontsize=11)
-            ax.set_xlabel('AUC Score (95% CI)', fontsize=12, fontweight='bold')
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
-            ax.set_xlim(0.5, 1.0)
-            ax.grid(axis='both', alpha=0.3, linestyle='--')
-            ax.invert_yaxis()
-        
-        fig.suptitle('Classification Performance with Confidence Intervals', 
-                    fontsize=14, fontweight='bold', y=1.00)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig7_classification_ci.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 7: {e}")
-    
-    # --- Figure 8: CI Forest Plot - Regression ---
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
-            synths = all_results[dataset]['synthesizers']
-            
-            baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
-            models_list = ['Real'] + [s.replace('_', ' ').title() for s in synth_names]
-            y_pos = np.arange(len(models_list))
-            
-            means = [baseline_mae] + [synths[s]['utility']['regression']['ridge_mae'] for s in synth_names]
-            cis_low = [means[0]] + [synths[s]['utility']['regression']['ridge_mae_ci']['ci_low'] for s in synth_names]
-            cis_high = [means[0]] + [synths[s]['utility']['regression']['ridge_mae_ci']['ci_high'] for s in synth_names]
-            
-            errors_low = [abs(m - l) for m, l in zip(means, cis_low)]
-            errors_high = [abs(h - m) for m, h in zip(means, cis_high)]
-            
-            ax.errorbar(means, y_pos, xerr=[errors_low, errors_high], fmt='s', markersize=10, 
-                       capsize=8, capthick=2, linewidth=2, color='black', ecolor='gray')
-            
-            for i, (m, model) in enumerate(zip(means, models_list)):
-                ax.text(m + 1.5, i, f'{m:.2f}', va='center', fontsize=10, fontweight='bold')
-            
-            ax.set_yticks(y_pos)
-            ax.set_yticklabels(models_list, fontsize=11)
-            ax.set_xlabel('MAE (95% CI, Lower is Better)', fontsize=12, fontweight='bold')
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
-            ax.grid(axis='both', alpha=0.3, linestyle='--')
-            ax.invert_yaxis()
-        
-        fig.suptitle('Regression Performance with Confidence Intervals', 
-                    fontsize=14, fontweight='bold', y=1.00)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig8_regression_ci.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 8: {e}")
-    
-    # --- Figure 9: Per-Attacker Privacy Breakdown ---
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        
-        attackers = ['logistic_regression', 'random_forest', 'xgboost']
-        
-        for idx, dataset in enumerate(datasets):
-            ax = axes[idx]
-            synths = all_results[dataset]['synthesizers']
-            
-            # Check if xgboost exists
+            attackers = ['logistic_regression', 'random_forest', 'xgboost']
             if 'xgboost' not in synths[synth_names[0]]['mia']['attackers']:
                 attackers = ['logistic_regression', 'random_forest']
             
-            x = np.arange(len(synth_names))
+            x = np.arange(len(synth_names)) * 1.15
             width = 0.25 if len(attackers) == 3 else 0.35
             
             for i, attacker in enumerate(attackers):
                 scores = [synths[s]['mia']['attackers'][attacker]['effective_auc'] for s in synth_names]
                 offset = (i - len(attackers)/2 + 0.5) * width
                 bars = ax.bar(x + offset, scores, width, 
-                            label=attacker.replace('_', ' ').title(), edgecolor='black')
+                            label=attacker.replace('_', ' ').title(), 
+                            color=attacker_colors[attacker],
+                            edgecolor='black', linewidth=1.2)
                 
                 for bar, score in zip(bars, scores):
-                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                           f'{score:.3f}', ha='center', va='bottom', fontsize=8)
+                    if abs(score - 0.5) < 0.02:
+                        y_offset = 0.025
+                    else:
+                        y_offset = 0.01
+                    
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + y_offset, 
+                           f'{score:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
             
-            ax.axhline(y=0.5, color='green', linestyle='--', linewidth=2, alpha=0.7)
-            ax.set_ylabel('Effective AUC (Lower is Better)', fontsize=12, fontweight='bold')
-            ax.set_xlabel('Synthesizer', fontsize=12, fontweight='bold')
-            ax.set_title(f'{dataset.upper()}', fontsize=13, fontweight='bold')
+            ax.axhline(y=0.5, color='green', linestyle='--', linewidth=2.5, 
+                      label='Ideal Privacy (0.5)', alpha=0.8, zorder=10)
+            ax.set_ylabel('MIA Effective AUC', fontsize=13, fontweight='bold')
+            ax.set_xlabel('', fontsize=13, fontweight='bold')
+            ax.set_title(f'Privacy: Per-Attacker MIA Performance - {dataset.upper()} Dataset', 
+                        fontsize=12, fontweight='bold', pad=15)
             ax.set_xticks(x)
-            ax.set_xticklabels([s.replace('_', ' ').title() for s in synth_names], fontsize=10)
+            ax.set_xticklabels([s.replace('_', ' ').title() for s in synth_names])
             ax.set_ylim(0, 1.0)
-            if idx == 0:
-                ax.legend(fontsize=10, frameon=True, shadow=True, loc='upper right')
+            ax.legend(fontsize=11, frameon=True, shadow=True, loc='upper right')
             ax.grid(axis='y', alpha=0.3, linestyle='--')
-        
-        fig.suptitle('Privacy: Per-Attacker MIA Performance', fontsize=14, fontweight='bold', y=1.00)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig9_per_attacker_privacy.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 9: {e}")
-    
-    # --- Figure 10: Distribution Fidelity ---
-    try:
-        # Get 2 key numeric features per dataset (select by variance for interesting features)
-        all_features = {}
-        for dataset in datasets:
-            train_df = all_train_data[dataset]
-            numeric_cols = [col for col in train_df.columns 
-                           if pd.api.types.is_numeric_dtype(train_df[col]) and train_df[col].nunique() > 10]
-            if len(numeric_cols) >= 2:
-                # Select features with highest variance (more interesting distributions)
-                variances = {col: train_df[col].var() for col in numeric_cols}
-                top_features = sorted(variances, key=variances.get, reverse=True)[:2]
-                all_features[dataset] = top_features
-            elif numeric_cols:
-                all_features[dataset] = numeric_cols[:2]
-        
-        if all_features:
-            # Create subplots: 2 features (rows) × 2 datasets (cols)
-            fig, axes = plt.subplots(2, 2, figsize=(14, 8))
+            ax.tick_params(axis='x', labelsize=13)
             
-            for ds_idx, dataset in enumerate(datasets):
-                if dataset not in all_features:
-                    continue
-                features = all_features[dataset]
-                train_df = all_train_data[dataset]
-                synth_data = all_synthetic_data[dataset]
-                
-                for feat_idx, feat in enumerate(features[:2]):  # Ensure max 2 features
-                    ax = axes[feat_idx, ds_idx]
-                    
-                    if feat not in train_df.columns:
-                        ax.axis('off')
-                        continue
-                    
-                    real_data = train_df[feat].dropna()
-                    ax.hist(real_data, bins=50, alpha=0.6, color='gray', 
-                           label='Real', density=True, edgecolor='black')
-                    
-                    for s in synth_names:
-                        if s in synth_data and feat in synth_data[s].columns:
-                            syn = synth_data[s][feat].dropna()
-                            ax.hist(syn, bins=50, alpha=0.4, color=colors[s], 
-                                   label=s.replace('_', ' ').title(), density=True, edgecolor='black')
-                    
-                    ax.set_xlabel(feat, fontsize=11, fontweight='bold')
-                    ax.set_ylabel('Density', fontsize=11, fontweight='bold')
-                    ax.set_title(f'{dataset.upper()}: {feat}', fontsize=12, fontweight='bold')
-                    if feat_idx == 0 and ds_idx == 0:
-                        ax.legend(fontsize=9, frameon=True, shadow=True)
-                    ax.grid(axis='y', alpha=0.3, linestyle='--')
-            
-            fig.suptitle('Distribution Fidelity Comparison', fontsize=14, fontweight='bold', y=1.00)
             fig.tight_layout()
-            
-            path = figures_dir / 'fig10_distribution_fidelity.png'
+            path = figures_dir / f'fig{ds_idx}.png'
             fig.savefig(path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 10: {e}")
-    
-    # --- Figure 11: Correlation Matrices ---
-    try:
-        fig, axes = plt.subplots(2, 4, figsize=(18, 10))
-        
-        for ds_idx, dataset in enumerate(datasets):
-            train_df = all_train_data[dataset]
-            synth_data = all_synthetic_data[dataset]
-            
-            numeric_cols = train_df.select_dtypes(include=[np.number]).columns[:6]
-            
-            # Real correlation
-            real_corr = train_df[numeric_cols].corr()
-            im = axes[ds_idx, 0].imshow(real_corr, cmap='coolwarm', vmin=-1, vmax=1, aspect='auto')
-            axes[ds_idx, 0].set_title(f'{dataset.upper()}: Real', fontsize=11, fontweight='bold')
-            axes[ds_idx, 0].set_xticks(range(len(numeric_cols)))
-            axes[ds_idx, 0].set_yticks(range(len(numeric_cols)))
-            axes[ds_idx, 0].set_xticklabels(numeric_cols, rotation=45, ha='right', fontsize=8)
-            axes[ds_idx, 0].set_yticklabels(numeric_cols, fontsize=8)
-            
-            # Synthetic correlations
-            for s_idx, s in enumerate(synth_names, 1):
-                if s in synth_data:
-                    synth_corr = synth_data[s][numeric_cols].corr()
-                    axes[ds_idx, s_idx].imshow(synth_corr, cmap='coolwarm', vmin=-1, vmax=1, aspect='auto')
-                    axes[ds_idx, s_idx].set_title(f"{s.replace('_', ' ').title()}", 
-                                                  fontsize=11, fontweight='bold')
-                    axes[ds_idx, s_idx].set_xticks(range(len(numeric_cols)))
-                    axes[ds_idx, s_idx].set_yticks(range(len(numeric_cols)))
-                    axes[ds_idx, s_idx].set_xticklabels(numeric_cols, rotation=45, ha='right', fontsize=8)
-                    axes[ds_idx, s_idx].set_yticklabels(numeric_cols, fontsize=8)
-        
-        fig.colorbar(im, ax=axes, fraction=0.02, pad=0.04, label='Correlation')
-        fig.suptitle('Feature Correlation Matrix Comparison', fontsize=14, fontweight='bold', y=0.98)
-        fig.tight_layout()
-        
-        path = figures_dir / 'fig11_correlation_matrices.png'
-        fig.savefig(path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        saved_figs.append(path)
-    except Exception as e:
-        print(f"Warning: Could not create Figure 11: {e}")
+        except Exception as e:
+            print(f"Warning: Could not create Figure {ds_idx} (Per-Attacker {dataset}): {e}")
     
     # Reset to defaults
     plt.rcParams.update(plt.rcParamsDefault)

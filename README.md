@@ -410,6 +410,14 @@ The single-file `synthla_edu_v2.py` is modular:
 - **TabDDPM CSV parsing**: Occasional issues on large OULAD splits; use `engine='python'` fallback if needed
 - **TabDDPM stability preprocessing**: The TabDDPM path fills missing values and clips numeric outliers (0.5th–99.5th percentiles) before training to reduce NaNs/instability; this can slightly alter marginal distributions.
 - **Compute**: Runtime varies by hardware; CTGAN/TabDDPM benefit from GPU acceleration. Use `--quick` for faster validation runs.
+  - **Expected runtimes (full mode, CPU):**
+    - OULAD data loading: 2-5 minutes (due to 10M+ row VLE table aggregation)
+    - Gaussian Copula: ~20 seconds training
+    - CTGAN: ~1-2 hours training
+    - TabDDPM: ~45-90 minutes training
+    - Full `--run-all` (2 datasets × 3 synthesizers): **3-6 hours total**
+  - **Progress indicators:** The script prints detailed progress for long-running operations (VLE aggregation, model training, evaluation)
+  - **Quick mode:** Reduces training time to ~30 minutes total but produces unreliable metrics
 - **XGBoost MIA attacker**: Optional; requires `pip install xgboost` for multi-attacker MIA
 - **Extensibility**: Easy to add new datasets, synthesizers, or attackers by following the modular structure
 - **Containerization**: Docker support provided via `Dockerfile` and [DOCKER.md](DOCKER.md). Reproducibility baseline uses pinned dependencies (`requirements-locked.txt`) and CI validation.

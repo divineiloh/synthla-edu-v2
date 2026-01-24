@@ -29,8 +29,10 @@ data/processed/
 
 # Outputs
 runs/
+runs_*/
 *.log
 *.out
+*.txt
 
 # IDEs
 .vscode/
