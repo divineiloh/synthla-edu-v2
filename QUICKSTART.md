@@ -49,7 +49,7 @@ python verify_fixes.py --results-dir runs_quick
 
 ### Figures:
 - **Before**: 12 files with numbering gaps (fig9_computational_efficiency stale)
-- **After**: 11 files correctly numbered (fig1-fig11)
+- **After**: 10 files correctly numbered (fig1-fig10)
 
 ---
 
@@ -58,7 +58,7 @@ python verify_fixes.py --results-dir runs_quick
 After running the benchmark, verify:
 
 ```powershell
-# 1. Check figure count (should be exactly 11)
+# 1. Check figure count (should be exactly 10)
 Get-ChildItem runs_fixed\figures\*.png | Measure-Object
 
 # 2. Verify no leakage columns in OULAD data
@@ -97,17 +97,16 @@ runs_fixed/
 │   └── tabddpm/
 │       └── ...
 └── figures/
-    ├── fig1_classification_utility_comparison.png
-    ├── fig2_regression_utility_comparison.png
-    ├── fig3_data_quality_comparison.png
-    ├── fig4_privacy_mia_comparison.png
-    ├── fig5_performance_heatmap.png
-    ├── fig6_radar_chart.png
-    ├── fig7_classification_ci.png
-    ├── fig8_regression_ci.png
-    ├── fig9_per_attacker_privacy.png          # (renamed from fig10)
-    ├── fig10_distribution_fidelity.png        # (renamed from fig11)
-    └── fig11_correlation_matrices.png         # (renamed from fig12)
+    ├── fig1.png  # Classification Utility - OULAD
+    ├── fig2.png  # Classification Utility - ASSISTMENTS
+    ├── fig3.png  # Regression Utility - OULAD
+    ├── fig4.png  # Regression Utility - ASSISTMENTS
+    ├── fig5.png  # Statistical Quality (SDMetrics)
+    ├── fig6.png  # Privacy Preservation (MIA)
+    ├── fig7.png  # Performance Heatmap - OULAD
+    ├── fig8.png  # Performance Heatmap - ASSISTMENTS
+    ├── fig9.png  # Per-Attacker Privacy - OULAD
+    └── fig10.png # Per-Attacker Privacy - ASSISTMENTS
 ```
 
 ---
@@ -120,10 +119,10 @@ runs_fixed/
 **Workaround**: The code automatically cleans the directory before generating new figures (`remove_glob(figures_dir, "*.png")` at line 1850). These stale files will be removed on the next run.
 
 **Stale files that will be auto-deleted**:
-- `fig9_computational_efficiency.png` (from deleted mock function)
-- `fig10_per_attacker_privacy.png` (should be fig9)
-- `fig11_distribution_fidelity.png` (should be fig10)
-- `fig12_correlation_matrices.png` (should be fig11)
+- `fig9_computational_efficiency.png` (from old version)
+- `fig10_per_attacker_privacy.png` (from old version)
+- `fig11_distribution_fidelity.png` (from old version)
+- `fig12_correlation_matrices.png` (from old version)
 
 ---
 
@@ -140,7 +139,7 @@ runs_fixed/
 
 Your run is successful if:
 1. ✅ `verify_fixes.py` passes all 5 checks
-2. ✅ Exactly 11 figures generated in `runs_fixed/figures/`
+2. ✅ Exactly 10 figures generated in `runs_fixed/figures/`
 3. ✅ Utility metrics are realistic (AUC < 0.95, MAE > 2.0 for OULAD)
 4. ✅ No leakage columns in saved parquet files
 5. ✅ results.json files exist for both datasets

@@ -3,7 +3,7 @@
 Regenerate visualizations from existing experiment results without rerunning experiments.
 
 This script loads the JSON results and parquet data files from a completed --run-all
-execution and regenerates all 11 publication figures. Useful for:
+execution and regenerates all 10 publication figures. Useful for:
 - Adjusting figure aesthetics during paper revision
 - Regenerating specific figures with different parameters
 - Creating additional visualizations from the same experimental data
@@ -145,7 +145,7 @@ def main():
     print()
     
     # Prepare figures directory
-    figures_dir = ensure_dir(results_dir / "figures")
+    figures_dir = ensure_dir(results_dir / "figures updated")
     print(f"Output directory: {figures_dir.absolute()}")
     print()
     

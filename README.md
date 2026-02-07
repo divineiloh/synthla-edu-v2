@@ -21,7 +21,7 @@ Single-file Python benchmark for evaluating synthetic data generators on educati
 - **Datasets**: OULAD (student-level) and ASSISTments (student-level aggregated)
 - **Synthesizers**: Gaussian Copula (SDV), CTGAN (SDV), TabDDPM (Synthcity)
 - **Evaluation**: Quality (SDMetrics), Utility (TSTR/TRTR), Realism (C2ST with ID exclusion), Privacy (Multi-attacker MIA), Statistical rigor (Paired permutation tests)
-- **Visualizations**: 11 publication-quality figures (300 DPI, color-blind friendly)
+- **Visualizations**: 10 publication-quality figures (300 DPI, color-blind friendly)
 
 ## Quick Start
 
@@ -125,24 +125,26 @@ ls runs/figures/fig*_*.png
 
 ## Publication Visualizations
 
-SYNTHLA-EDU V2 automatically generates **11 publication-quality cross-dataset comparison figures** (300 DPI, color-blind friendly) after both datasets complete:
+SYNTHLA-EDU V2 automatically generates **10 publication-quality cross-dataset comparison figures** (300 DPI, color-blind friendly) after both datasets complete:
 
 ### Core Evaluation Figures (8 figures)
-1. **Classification Utility** - OULAD vs ASSISTments dropout/correctness prediction
-2. **Regression Utility** - Cross-dataset MAE comparison for grade prediction
-3. **Data Quality** - SDMetrics scores across both datasets
-4. **Privacy (MIA)** - Worst-case membership inference attack comparison
-5. **Performance Heatmap** - All metrics × datasets × synthesizers grid
+1. **Classification Utility - OULAD** - Dropout prediction performance
+2. **Classification Utility - ASSISTMENTS** - Correctness prediction performance
+3. **Regression Utility - OULAD** - Grade prediction MAE
+4. **Regression Utility - ASSISTMENTS** - Score prediction MAE
+5. **Data Quality** - SDMetrics scores across both datasets
+6. **Privacy (MIA)** - Worst-case membership inference attack comparison
+7. **Performance Heatmap - OULAD** - All metrics grid
+8. **Performance Heatmap - ASSISTMENTS** - All metrics grid
 6. **Radar Chart** - Multi-dimensional synthesizer profiles
 7. **Classification CI** - Bootstrap confidence intervals for AUC
 8. **Regression CI** - Bootstrap confidence intervals for MAE
 
-### Supplementary Analysis Figures (3 figures)
-9. **Per-Attacker Privacy** - LR/RF/XGBoost attacker breakdown
-10. **Distribution Fidelity** - Feature distribution comparison (real vs synthetic)
-11. **Correlation Matrices** - Pairwise feature correlation preservation
+### Supplementary Analysis Figures (2 figures)
+9. **Per-Attacker Privacy - OULAD** - LR/RF/XGBoost attacker breakdown
+10. **Per-Attacker Privacy - ASSISTMENTS** - LR/RF/XGBoost attacker breakdown
 
-**All 11 figures** are automatically generated in `runs/figures/` when running `--run-all`.
+**All 10 figures** are automatically generated in `runs/figures/` when running `--run-all`.
 
 ### Quality Standards
 - ✅ 300 DPI resolution (print-ready)
@@ -161,11 +163,11 @@ Each dataset in `runs/<dataset>/` contains:
   - `pairwise_tests`: Statistical significance tests
 
 Cross-dataset visualizations in `runs/figures/`:
-- **`fig1-fig11.png`** — 11 publication-ready cross-dataset comparison figures
+- **`fig1-fig10.png`** — 10 publication-ready cross-dataset comparison figures
 
 **Output size**: 
 - Per dataset: ~10-15MB (data + results)
-- Figures: ~5MB (12 high-resolution PNGs)
+- Figures: ~5MB (10 high-resolution PNGs)
 
 ## Key Metrics
 
@@ -350,7 +352,7 @@ SYNTHLA-EDU V2/
     │   ├── data.parquet
     │   └── results.json
     └── figures/                # Cross-dataset visualizations
-        └── fig1-11.png         # 11 publication-quality comparison figures
+        └── fig1-10.png         # 10 publication-quality comparison figures
 ```
 
 **Total**: 1 Python file + 2 dataset result directories + 1 figures directory
