@@ -1,4 +1,4 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -9,32 +9,37 @@ dist/
 build/
 *.egg
 
-# Virtual environments
+# ── Virtual environments ─────────────────────────────────────────────
 .venv/
 venv/
 ENV/
 env/
 
-# Testing
+# ── Testing ──────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
 
-# Data files (too large for Git)
+# ── Data files (too large for Git) ───────────────────────────────────
 data/raw/
 data/processed/
 *.csv
 *.parquet
 
-# Outputs
+# ── Experiment outputs ───────────────────────────────────────────────
 runs/
-runs_*/
+runs_fixed/
+runs_quick/
 *.log
 *.out
-*.txt
 
-# IDEs
+# ── Caches ───────────────────────────────────────────────────────────
+*.pkl
+runs_publication/shap_cache/
+runs_publication/seed_*/figures*/
+
+# ── IDEs ─────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
@@ -42,17 +47,14 @@ runs_*/
 *~
 .DS_Store
 
-# Jupyter
+# ── Jupyter ──────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
 
-# Temporary files
+# ── Temporary / local-only files ─────────────────────────────────────
 *.tmp
 *.bak
 *.orig
-
-# Local notes (not for repo)
+~$*
 PAPER_ADDITIONS_NOTES.md
-
-# Generated paper-result summaries (local artifacts)
 PAPER_RESULTS*.txt

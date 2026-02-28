@@ -80,7 +80,7 @@ The OULAD dataset is built from 7 CSV files that are merged and aggregated to st
 ## ASSISTments Dataset Schema
 
 ### Source Table
-Single CSV file: **assistments_2009_2010.csv** (interaction-level data)
+Single CSV file: **assistments_2012_2013.csv** (interaction-level data)
 
 ### Aggregation Strategy
 **Interaction → Student-Level**: Group by `user_id` and aggregate interaction metrics.
@@ -225,4 +225,4 @@ schema = {
 ## References
 
 1. **OULAD**: Kuzilek, J., Hlosta, M., & Zdrahal, Z. (2017). Open University Learning Analytics dataset. *Scientific Data*, 4, 170171.
-2. **ASSISTments**: Feng, M., Heffernan, N., & Koedinger, K. (2009). Addressing the assessment challenge with an online system that tutors as it assesses. *User Modeling and User-Adapted Interaction*, 19(3), 243-266.
+2. **ASSISTments**: Feng, M., Heffernan, N., & Koedinger, K. (2009). Addressing the assessment challenge with an online system that tutors as it assesses. *User Modeling and User-Adapted Interaction*, 19(3), 243–266.

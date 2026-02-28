@@ -50,6 +50,14 @@ try:
 except Exception:
     _HAS_XGB = False
 
+try:
+    import shap
+    _HAS_SHAP = True
+except ImportError:
+    _HAS_SHAP = False
+
+from scipy import stats as scipy_stats
+
 # -------------------------------
 # Utilities
 # -------------------------------
@@ -135,6 +143,162 @@ def make_preprocess_pipeline(spec: FeatureSpec) -> ColumnTransformer:
 
 
 # -------------------------------
+# SHAP Feature Importance Analysis
+# -------------------------------
+SHAP_N_ESTIMATORS = 100  # Reduced RF count for SHAP speed (rankings stabilize by ~100 trees)
+
+
+def get_shap_feature_names(preprocessor: ColumnTransformer) -> List[str]:
+    """Extract feature names from a fitted ColumnTransformer."""
+    names: List[str] = []
+    for name, transformer, cols in preprocessor.transformers_:
+        if name == "remainder":
+            continue
+        if isinstance(transformer, Pipeline):
+            last_step = transformer[-1]
+            if hasattr(last_step, "get_feature_names_out"):
+                try:
+                    names.extend(last_step.get_feature_names_out())
+                except Exception:
+                    names.extend(cols)
+            else:
+                names.extend(cols)
+        elif hasattr(transformer, "get_feature_names_out"):
+            try:
+                names.extend(transformer.get_feature_names_out())
+            except Exception:
+                names.extend(cols)
+        else:
+            names.extend(cols)
+    return names
+
+
+def _aggregate_onehot_importance(
+    feature_names: List[str],
+    importance: np.ndarray,
+    spec: FeatureSpec,
+) -> Dict[str, float]:
+    """Aggregate one-hot encoded SHAP values back to original categorical features."""
+    importance = np.asarray(importance).ravel()
+    result: Dict[str, float] = {}
+    for i, fname in enumerate(feature_names):
+        val = float(importance[i])
+        matched = False
+        for cat_col in spec.categorical_cols:
+            if fname.startswith(f"cat__{cat_col}_") or fname.startswith(f"{cat_col}_"):
+                result[cat_col] = result.get(cat_col, 0.0) + val
+                matched = True
+                break
+        if not matched:
+            clean_name = fname.replace("num__", "") if fname.startswith("num__") else fname
+            result[clean_name] = result.get(clean_name, 0.0) + val
+    return result
+
+
+def compute_shap_importance(
+    X_train: pd.DataFrame,
+    y_train: np.ndarray,
+    X_test: pd.DataFrame,
+    spec: FeatureSpec,
+    seed: int,
+    task: str = "classification",
+    max_shap_samples: int = 500,
+) -> Dict[str, Any]:
+    """Fit RF model and compute SHAP feature importance via TreeExplainer.
+
+    Returns dict with:
+      - feature_names_original: original feature names (categorical aggregated)
+      - mean_abs_shap_original: mean |SHAP value| per original feature
+      - n_shap_samples: number of test samples used for SHAP
+    """
+    import shap
+
+    n_trees = SHAP_N_ESTIMATORS
+
+    if task == "classification":
+        model = Pipeline([
+            ("pre", make_preprocess_pipeline(spec)),
+            ("clf", RandomForestClassifier(
+                n_estimators=n_trees, random_state=seed, n_jobs=-1
+            )),
+        ])
+    else:
+        model = Pipeline([
+            ("pre", make_preprocess_pipeline(spec)),
+            ("reg", RandomForestRegressor(
+                n_estimators=n_trees, random_state=seed, n_jobs=-1
+            )),
+        ])
+
+    model.fit(X_train, y_train)
+
+    # Transform test data through preprocessor for SHAP
+    preprocessor = model.named_steps["pre"]
+    X_test_transformed = preprocessor.transform(X_test)
+    if hasattr(X_test_transformed, "toarray"):
+        X_test_transformed = X_test_transformed.toarray()
+
+    feature_names = get_shap_feature_names(preprocessor)
+
+    # Subsample for SHAP speed (deterministic)
+    n_samples = min(max_shap_samples, X_test_transformed.shape[0])
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(X_test_transformed.shape[0], size=n_samples, replace=False)
+    X_shap = X_test_transformed[idx]
+
+    # Use TreeExplainer (exact, fast for RF)
+    estimator = model.named_steps.get("clf") or model.named_steps.get("reg")
+    explainer = shap.TreeExplainer(estimator)
+    shap_values = explainer.shap_values(X_shap, check_additivity=False)
+
+    # Handle different SHAP output formats:
+    # - list of 2 arrays (older SHAP): [class_0_array, class_1_array]
+    # - 3D array (newer SHAP): (n_samples, n_features, n_classes)
+    # - 2D array (regression): (n_samples, n_features)
+    if isinstance(shap_values, list):
+        shap_values = shap_values[1]  # take class 1
+    elif shap_values.ndim == 3:
+        shap_values = shap_values[:, :, 1]  # take class 1 from 3D
+
+    mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+    mean_abs_shap = np.atleast_1d(mean_abs_shap.ravel()) if mean_abs_shap.ndim > 1 else mean_abs_shap
+
+    # Map one-hot features back to original feature names
+    original_importance = _aggregate_onehot_importance(feature_names, mean_abs_shap, spec)
+
+    return {
+        "feature_names_original": list(original_importance.keys()),
+        "mean_abs_shap_original": list(original_importance.values()),
+        "n_shap_samples": n_samples,
+    }
+
+
+def compute_shap_rank_correlation(
+    trtr_importance: Dict[str, float], tstr_importance: Dict[str, float]
+) -> Dict[str, Any]:
+    """Compute Spearman rank correlation between TRTR and TSTR feature importance."""
+    common_features = sorted(
+        set(trtr_importance.keys()) & set(tstr_importance.keys())
+    )
+    if len(common_features) < 3:
+        return {
+            "spearman_rho": float("nan"),
+            "p_value": float("nan"),
+            "n_features": len(common_features),
+        }
+
+    trtr_vals = [trtr_importance[f] for f in common_features]
+    tstr_vals = [tstr_importance[f] for f in common_features]
+
+    rho, p = scipy_stats.spearmanr(trtr_vals, tstr_vals)
+    return {
+        "spearman_rho": float(rho),
+        "p_value": float(p),
+        "n_features": len(common_features),
+    }
+
+
+# -------------------------------
 # Dataset builders
 # -------------------------------
 DEFAULT_ASSIST_KEEP_COLS = [
@@ -159,6 +323,11 @@ DEFAULT_ASSIST_KEEP_COLS = [
     "correct",
 ]
 
+# Early window size for ASSISTments feature engineering (prevents target leakage)
+# Features are computed from the first K interactions per student only,
+# while labels use ALL interactions to define engagement.
+ASSISTMENTS_EARLY_WINDOW_K = 20
+
 
 def _find_assistments_csv(raw_dir: Path) -> Path:
     candidates = list(raw_dir.rglob("*.csv"))
@@ -168,7 +337,16 @@ def _find_assistments_csv(raw_dir: Path) -> Path:
     return candidates[0]
 
 
-def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15") -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15", early_window_k: int = ASSISTMENTS_EARLY_WINDOW_K) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Build ASSISTments student-level table with target leakage prevention.
+    
+    Key design (prevents trivial classification):
+    - Label (high_engagement): Based on TOTAL interactions per student (n_interactions_total)
+    - Features: Computed from FIRST K interactions only (early_window_k)
+    
+    This ensures features cannot trivially reconstruct the label.
+    """
     raw_dir = Path(raw_dir)
     path = _find_assistments_csv(raw_dir)
     df = pd.read_csv(path, low_memory=False, encoding=encoding)
@@ -187,37 +365,100 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
 
     # Ensure binary interaction target
     df["correct"] = df["correct"].astype(int)
-
-    # Student-level aggregation (default for V2): one row per student
-    grp = df.groupby("user_id")
-    out = pd.DataFrame({
-        "user_id": grp.size().index.astype(int),
-        "n_interactions": grp.size().values.astype(float),
-        "student_pct_correct": grp["correct"].mean().values.astype(float),
-        "unique_skills": (grp["skill_id"].nunique().values.astype(float) if "skill_id" in df.columns else grp.size().values.astype(float)),
-        "hint_rate": (grp["hint_count"].mean().values.astype(float) if "hint_count" in df.columns else grp.size().values.astype(float)),
-        "avg_attempts": (grp["attempt_count"].mean().values.astype(float) if "attempt_count" in df.columns else grp.size().values.astype(float)),
-        "avg_response_time": (grp["ms_first_response"].mean().values.astype(float) if "ms_first_response" in df.columns else grp.size().values.astype(float)),
+    
+    # Sort by user_id to ensure consistent ordering within each user
+    # If 'order_id' or timestamp exists, use that; otherwise use original row order
+    if "order_id" in df.columns:
+        df = df.sort_values(["user_id", "order_id"]).reset_index(drop=True)
+    elif "problem_log_id" in df.columns:
+        df = df.sort_values(["user_id", "problem_log_id"]).reset_index(drop=True)
+    else:
+        # Use original row order (stable within groupby)
+        df = df.sort_values("user_id").reset_index(drop=True)
+    
+    # Assign row number within each user for early window filtering
+    df["_row_within_user"] = df.groupby("user_id").cumcount()
+    
+    # =========================================================================
+    # STEP 1: Compute n_interactions_total from ALL interactions (for label)
+    # =========================================================================
+    grp_all = df.groupby("user_id")
+    user_total_interactions = grp_all.size().reset_index(name="n_interactions_total")
+    user_ids = user_total_interactions["user_id"].values.astype(int)
+    n_interactions_total = user_total_interactions["n_interactions_total"].values.astype(float)
+    
+    # Define engagement label based on TOTAL interactions
+    engagement_threshold = np.median(n_interactions_total)
+    high_engagement = (n_interactions_total >= engagement_threshold).astype(int)
+    
+    print(f"[ASSISTments] Early window K={early_window_k} | Total users: {len(user_ids):,}")
+    print(f"[ASSISTments] Engagement threshold (median n_interactions_total): {engagement_threshold:.1f}")
+    print(f"[ASSISTments] Label distribution: high_engagement=1: {high_engagement.sum():,} ({100*high_engagement.mean():.1f}%)")
+    
+    # =========================================================================
+    # STEP 2: Compute FEATURES from FIRST K interactions only (prevents leakage)
+    # =========================================================================
+    df_early = df[df["_row_within_user"] < early_window_k].copy()
+    
+    # Count how many users have at least K interactions (diagnostic)
+    users_with_full_window = (grp_all.size() >= early_window_k).sum()
+    print(f"[ASSISTments] Users with >= {early_window_k} interactions: {users_with_full_window:,} ({100*users_with_full_window/len(user_ids):.1f}%)")
+    
+    grp_early = df_early.groupby("user_id")
+    
+    # Build feature DataFrame from early window only
+    feature_df = pd.DataFrame({
+        "user_id": grp_early.size().index.astype(int),
+        "n_interactions_early": grp_early.size().values.astype(float),  # For diagnostic, not used as feature
+        "student_pct_correct": grp_early["correct"].mean().values.astype(float),
+        "unique_skills": (grp_early["skill_id"].nunique().values.astype(float) if "skill_id" in df_early.columns else np.ones(len(grp_early))),
+        "hint_rate": (grp_early["hint_count"].mean().values.astype(float) if "hint_count" in df_early.columns else np.zeros(len(grp_early))),
+        "avg_attempts": (grp_early["attempt_count"].mean().values.astype(float) if "attempt_count" in df_early.columns else np.ones(len(grp_early))),
+        "avg_response_time": (grp_early["ms_first_response"].mean().values.astype(float) if "ms_first_response" in df_early.columns else np.zeros(len(grp_early))),
     })
-
-    # Binary classification target: high_engagement (independent from student_pct_correct)
-    # Uses median split on n_interactions to avoid deterministic relationship with regression target
-    engagement_threshold = out["n_interactions"].median()
-    out["high_engagement"] = (out["n_interactions"] >= engagement_threshold).astype(int)
     
-    # Verify independence: check correlation between features and dropped n_interactions
-    # This ensures the classification task is not trivial via proxy reconstruction
-    feature_cols = [c for c in out.columns if c not in ["user_id", "high_engagement", "student_pct_correct", "n_interactions"]]
+    # Merge labels (from ALL interactions) with features (from EARLY window)
+    label_df = pd.DataFrame({
+        "user_id": user_ids,
+        "n_interactions_total": n_interactions_total,
+        "high_engagement": high_engagement,
+    })
+    
+    out = feature_df.merge(label_df, on="user_id", how="inner")
+    
+    # =========================================================================
+    # STEP 3: Correlation diagnostic (verify leakage prevention)
+    # =========================================================================
+    feature_cols = [c for c in out.columns if c not in ["user_id", "high_engagement", "student_pct_correct", "n_interactions_total", "n_interactions_early"]]
+    
+    print(f"\n[ASSISTments] === Feature-Label Correlation Diagnostic ===")
+    print(f"[ASSISTments] Features (computed from first {early_window_k} interactions): {feature_cols}")
+    
     if feature_cols:
-        correlations = out[feature_cols].corrwith(out["n_interactions"]).abs()
+        correlations = out[feature_cols].corrwith(out["n_interactions_total"]).abs()
         max_corr = correlations.max()
-        if max_corr > 0.8:
-            print(f"WARNING: High correlation detected between n_interactions and features (max={max_corr:.3f})")
-            print(f"Top correlated: {correlations.nlargest(3).to_dict()}")
-            print("This may create implicit leakage in classification task.")
+        print(f"[ASSISTments] Correlations with n_interactions_total:")
+        for col in sorted(feature_cols):
+            print(f"  - {col}: {correlations[col]:.4f}")
+        print(f"[ASSISTments] Max absolute correlation: {max_corr:.4f}")
+        
+        if max_corr >= 0.99:
+            print(f"[ASSISTments] ERROR: Near-perfect correlation detected! Leakage may still exist.")
+        elif max_corr > 0.8:
+            print(f"[ASSISTments] WARNING: High correlation ({max_corr:.3f}) - review feature construction.")
+        else:
+            print(f"[ASSISTments] OK: No trivial proxy detected (max corr={max_corr:.4f} < 0.8)")
     
-    # CRITICAL: Drop n_interactions after creating target to prevent trivial prediction
-    out = out.drop(columns=["n_interactions"])
+    # Also check correlation between n_interactions_early and n_interactions_total
+    early_total_corr = out["n_interactions_early"].corr(out["n_interactions_total"])
+    print(f"[ASSISTments] Correlation(n_interactions_early, n_interactions_total): {early_total_corr:.4f}")
+    print(f"[ASSISTments] === End Diagnostic ===\n")
+    
+    # =========================================================================
+    # STEP 4: Drop columns that should not be used as features
+    # =========================================================================
+    # Drop n_interactions_total (the label source) and n_interactions_early (diagnostic only)
+    out = out.drop(columns=["n_interactions_total", "n_interactions_early"])
     out["user_id"] = out["user_id"].astype("int64")
 
     schema = {
@@ -227,25 +468,6 @@ def build_assistments_table(raw_dir: str | Path, *, encoding: str = "ISO-8859-15
         "categorical_cols": [],
     }
     return out, schema
-
-
-def aggregate_assistments_student_level(df: pd.DataFrame) -> pd.DataFrame:
-    grp = df.groupby("user_id")
-    out = pd.DataFrame(
-        {
-            "user_id": grp.size().index.astype(int),
-            "n_interactions": grp.size().values.astype(float),
-            "n_unique_problems": grp["problem_id"].nunique().values.astype(float) if "problem_id" in df.columns else grp.size().values.astype(float),
-            "n_unique_skills": grp["skill_id"].nunique().values.astype(float) if "skill_id" in df.columns else grp.size().values.astype(float),
-            "mean_attempt_count": grp["attempt_count"].mean().values if "attempt_count" in df.columns else grp.size().values.astype(float),
-            "mean_ms_first_response": grp["ms_first_response"].mean().values if "ms_first_response" in df.columns else grp.size().values.astype(float),
-            "mean_hint_count": grp["hint_count"].mean().values if "hint_count" in df.columns else grp.size().values.astype(float),
-            "mean_hint_total": grp["hint_total"].mean().values if "hint_total" in df.columns else grp.size().values.astype(float),
-            "mean_overlap_time": grp["overlap_time"].mean().values if "overlap_time" in df.columns else grp.size().values.astype(float),
-            "student_pct_correct": grp["correct"].mean().values.astype(float),
-        }
-    )
-    return out
 
 
 OULAD_REQUIRED_FILES = [
@@ -1199,6 +1421,27 @@ def paired_permutation_test(a: np.ndarray, b: np.ndarray, *, n_perm: int = 10000
     }
 
 
+def read_metric(d: Dict[str, Any], keys: List[str], default: float = 0.0) -> float:
+    """
+    Read a metric from a dictionary, trying multiple keys in priority order.
+    
+    Args:
+        d: Dictionary to read from
+        keys: List of keys to try, in priority order
+        default: Default value if no key is found
+    
+    Returns:
+        The first found value, or default if none found
+    """
+    for key in keys:
+        if key in d and d[key] is not None:
+            try:
+                return float(d[key])
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
 def plot_main_results(out_dir: Path) -> Path:
     import glob
     
@@ -1227,8 +1470,8 @@ def plot_main_results(out_dir: Path) -> Path:
     labels = ["Quality", "Realism (Eff. AUC)", "Privacy (Eff. AUC)"]
     values = [
         float(sd.get("overall_score", 0.0)) * 100.0,
-        float(c2.get("effective_auc_mean", c2.get("auc_mean", 0.0))) * 100.0,
-        float(mia.get("worst_case_effective_auc", 0.0)) * 100.0,
+        read_metric(c2, ["effective_auc_mean", "effective_auc", "auc_mean", "auc"]) * 100.0,
+        read_metric(mia, ["worst_case_effective_auc", "effective_auc"]) * 100.0,
     ]
 
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -1288,8 +1531,8 @@ def plot_model_comparison(dataset_dir: str | Path) -> Path:
                 mia = json.loads(mia_path.read_text())
                 models[synth_name] = {
                     "Quality": float(sd.get("overall_score", 0.0)) * 100.0,
-                    "Realism": float(c2.get("effective_auc_mean", c2.get("auc_mean", 0.0))) * 100.0,
-                    "Privacy": float(mia.get("worst_case_effective_auc", 0.0)) * 100.0,
+                    "Realism": read_metric(c2, ["effective_auc_mean", "effective_auc", "auc_mean", "auc"]) * 100.0,
+                    "Privacy": read_metric(mia, ["worst_case_effective_auc", "effective_auc"]) * 100.0,
                 }
             except Exception:
                 continue
@@ -1334,7 +1577,7 @@ def create_cross_dataset_visualizations(
     all_train_data: Dict[str, pd.DataFrame],
     all_synthetic_data: Dict[str, Dict[str, pd.DataFrame]]
 ) -> List[Path]:
-    """Generate 10 publication-ready visualizations (separate per dataset where applicable).
+    """Generate up to 14 publication-ready visualizations (separate per dataset where applicable).
     
     Figures generated:
         fig2: Classification Utility - OULAD
@@ -1347,6 +1590,9 @@ def create_cross_dataset_visualizations(
         fig9: Per-Attacker Privacy - ASSISTMENTS
         fig10: Performance Heatmap - OULAD
         fig11: Performance Heatmap - ASSISTMENTS
+        fig12: SHAP Feature Importance - OULAD (if shap installed)
+        fig13: SHAP Feature Importance - ASSISTMENTS (if shap installed)
+        fig14: SHAP Rank Correlation Heatmap (if shap installed)
     
     Args:
         figures_dir: Directory to save figures
@@ -1701,6 +1947,126 @@ def create_cross_dataset_visualizations(
         except Exception as e:
             print(f"Warning: Could not create Figure {ds_idx} (Heatmap {dataset}): {e}")
     
+    # --- Figures 12-14: SHAP Feature Importance Analysis ---
+    if _HAS_SHAP:
+        synth_display = {
+            'gaussian_copula': 'Gaussian Copula',
+            'ctgan': 'CTGAN',
+            'tabddpm': 'TabDDPM',
+        }
+        shap_colors = {
+            'trtr': '#999999',
+            'gaussian_copula': '#DE8F05',
+            'ctgan': '#029E73',
+            'tabddpm': '#CC78BC',
+        }
+
+        # Figures 12-13: SHAP importance bar charts (per dataset, both tasks)
+        for ds_idx, dataset in enumerate(datasets):
+            fig_num = 12 + ds_idx
+            try:
+                results = all_results[dataset]
+                fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+                for ax_idx, task in enumerate(["classification", "regression"]):
+                    ax = axes[ax_idx]
+
+                    # Get TRTR importance from first synthesizer's SHAP results
+                    first_synth = synth_names[0]
+                    shap_data = results["synthesizers"].get(first_synth, {}).get("shap", {}).get(task, {})
+                    trtr_imp = shap_data.get("trtr_importance", {})
+
+                    if not trtr_imp:
+                        ax.text(0.5, 0.5, "No SHAP data", ha="center", va="center", transform=ax.transAxes)
+                        ax.set_title(f"{task.title()}", fontsize=14, fontweight="bold")
+                        continue
+
+                    # Sort features by TRTR importance
+                    features = sorted(trtr_imp.keys(), key=lambda f: trtr_imp[f], reverse=True)
+                    n_feat = len(features)
+                    y_pos = np.arange(n_feat)
+                    sources = ["trtr"] + synth_names
+                    bar_h = 0.8 / len(sources)
+
+                    for s_idx, src in enumerate(sources):
+                        if src == "trtr":
+                            vals = [trtr_imp.get(f, 0) for f in features]
+                            label = "TRTR (Real)"
+                        else:
+                            tstr_imp = results["synthesizers"].get(src, {}).get("shap", {}).get(task, {}).get("tstr_importance", {})
+                            vals = [tstr_imp.get(f, 0) for f in features]
+                            label = f"TSTR ({synth_display.get(src, src)})"
+
+                        ax.barh(
+                            y_pos + s_idx * bar_h, vals, bar_h,
+                            label=label, color=shap_colors.get(src, "#999999"), alpha=0.85,
+                        )
+
+                    ax.set_yticks(y_pos + bar_h * len(sources) / 2)
+                    ax.set_yticklabels(features, fontsize=9)
+                    ax.set_xlabel("Mean |SHAP value|", fontsize=12, fontweight="bold")
+                    ax.set_title(f"{task.title()}", fontsize=14, fontweight="bold")
+                    ax.legend(fontsize=9, loc="lower right")
+                    ax.grid(axis="x", alpha=0.3)
+                    ax.invert_yaxis()
+
+                fig.suptitle(
+                    f"SHAP Feature Importance — {dataset.upper()}",
+                    fontsize=16, fontweight="bold",
+                )
+                fig.tight_layout()
+                path = figures_dir / f"fig{fig_num}.png"
+                fig.savefig(path, dpi=300, bbox_inches="tight")
+                plt.close(fig)
+                saved_figs.append(path)
+            except Exception as e:
+                print(f"Warning: Could not create Figure {fig_num} (SHAP {dataset}): {e}")
+
+        # Figure 14: SHAP Rank Correlation Heatmap (all datasets x synthesizers x tasks)
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+            for ax_idx, task in enumerate(["classification", "regression"]):
+                ax = axes[ax_idx]
+                matrix = np.full((len(datasets), len(synth_names)), np.nan)
+                for i, ds in enumerate(datasets):
+                    for j, s in enumerate(synth_names):
+                        rc = all_results.get(ds, {}).get("synthesizers", {}).get(s, {}).get("shap", {}).get(task, {}).get("rank_correlation", {})
+                        if "spearman_rho" in rc:
+                            matrix[i, j] = rc["spearman_rho"]
+
+                im = ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
+                ax.set_xticks(range(len(synth_names)))
+                ax.set_xticklabels([synth_display.get(s, s) for s in synth_names], fontsize=11)
+                ax.set_yticks(range(len(datasets)))
+                ax.set_yticklabels([ds.upper() for ds in datasets], fontsize=11)
+                ax.set_title(f"SHAP Rank Correlation (ρ)\n{task.title()}", fontsize=13, fontweight="bold")
+
+                for i in range(len(datasets)):
+                    for j in range(len(synth_names)):
+                        val = matrix[i, j]
+                        if not np.isnan(val):
+                            ax.text(
+                                j, i, f"{val:.3f}", ha="center", va="center",
+                                fontsize=13, fontweight="bold",
+                                color="white" if val < 0.5 else "black",
+                            )
+
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+            fig.suptitle(
+                "Feature Importance Preservation: TSTR vs TRTR (Spearman ρ)",
+                fontsize=14, fontweight="bold", y=1.02,
+            )
+            fig.tight_layout()
+            path = figures_dir / "fig14.png"
+            fig.savefig(path, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            saved_figs.append(path)
+        except Exception as e:
+            print(f"Warning: Could not create Figure 14 (SHAP heatmap): {e}")
+    else:
+        print("  [SKIP] SHAP figures (shap package not installed)")
+
     # Reset to defaults
     plt.rcParams.update(plt.rcParamsDefault)
     
@@ -1923,7 +2289,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         ds_out = ensure_dir(base_out / dataset)
         
         # Clean previous results for this dataset - remove ALL old files
-        print(f"[{dataset.upper()}] Step 1/7: Cleaning previous results...")
+        print(f"[{dataset.upper()}] Step 1/8: Cleaning previous results...")
         # Remove specific known files
         for file in ["data.parquet", "results.json", "model_comparison.png"]:
             remove_if_exists(ds_out / file)
@@ -1933,11 +2299,11 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         remove_glob(ds_out, "*.png")
         print(f"[{dataset.upper()}] [OK] Cleanup complete\n")
         
-        print(f"[{dataset.upper()}] Step 2/7: Loading and building dataset...")
+        print(f"[{dataset.upper()}] Step 2/8: Loading and building dataset...")
         df, schema = build_dataset(dataset, raw_dir)
         print(f"[{dataset.upper()}] [OK] Loaded {len(df):,} rows with {len(df.columns)} columns\n")
 
-        print(f"[{dataset.upper()}] Step 3/7: Splitting dataset (train/test)...")
+        print(f"[{dataset.upper()}] Step 3/8: Splitting dataset (train/test)...")
         strat_col = next(iter(schema.get("target_cols", [])), None)
         train_df, test_df = split_dataset(df, schema, test_size=test_size, seed=seed, stratify_col=strat_col)
         print(f"[{dataset.upper()}] [OK] Train: {len(train_df):,} rows | Test: {len(test_df):,} rows\n")
@@ -2036,7 +2402,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
                   f"mean={reg_vals.mean():.2f}, std={reg_vals.std():.2f}")
         print()
 
-        print(f"[{dataset.upper()}] Step 4/7: Training {len(synthesizers)} synthesizers...\n")
+        print(f"[{dataset.upper()}] Step 4/8: Training {len(synthesizers)} synthesizers...\n")
         
         # Loop synthesizers (all 3 now that PyTorch 2.9+ supports RMSNorm)
         per_sample_losses: Dict[str, Dict[str, np.ndarray]] = {}
@@ -2118,7 +2484,7 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
                 }
             }
 
-        print(f"[{dataset.upper()}] Step 5/7: Pairwise statistical significance tests...")
+        print(f"[{dataset.upper()}] Step 5/8: Pairwise statistical significance tests...")
         
         # Pairwise synthesizer comparisons (TSTR only)
         pairs = [("ctgan", "tabddpm"), ("ctgan", "gaussian_copula"), ("tabddpm", "gaussian_copula")]
@@ -2207,7 +2573,100 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
         print(f"[{dataset.upper()}]   - TSTR vs TRTR: {len(results['tstr_vs_trtr']) * 4} tests")
         print(f"[{dataset.upper()}]   - Bonferroni-corrected α={adjusted_alpha:.4f}\n")
 
-        print(f"[{dataset.upper()}] Step 6/7: Saving consolidated results...")
+        # ---------------------------------------------------------------
+        # SHAP Feature Importance Analysis
+        # ---------------------------------------------------------------
+        if _HAS_SHAP:
+            print(f"[{dataset.upper()}] Step 6/8: SHAP Feature Importance Analysis...")
+
+            def _split_X_y_shap(df: pd.DataFrame, target: str, all_targets: List[str]) -> Tuple[pd.DataFrame, np.ndarray]:
+                drop_cols = [c for c in all_targets if c in df.columns]
+                X = df.drop(columns=drop_cols)
+                y = df[target].values
+                return X, y
+
+            all_targets = [class_target, reg_target]
+            max_shap_samples = 200 if dataset == "oulad" else 500
+
+            # Store SHAP results per task
+            shap_trtr: Dict[str, Dict[str, float]] = {}  # task -> {feature: importance}
+            shap_tstr: Dict[str, Dict[str, Dict[str, float]]] = {}  # task -> synth -> {feature: importance}
+            shap_rank_corrs: Dict[str, Dict[str, Dict[str, Any]]] = {}  # task -> synth -> {rho, p, n}
+
+            for task, target in [("classification", class_target), ("regression", reg_target)]:
+                print(f"  [{task.upper()}] target={target}")
+
+                # Prepare features (drop all target columns to prevent leakage)
+                X_real_tr, y_real_tr = _split_X_y_shap(train_df, target, all_targets)
+                X_real_te, y_real_te = _split_X_y_shap(test_df, target, all_targets)
+                shap_spec = infer_feature_spec(pd.concat([X_real_tr, X_real_te], axis=0))
+
+                # TRTR SHAP baseline (train on real, explain on real test)
+                print(f"    > TRTR SHAP...", end="", flush=True)
+                t_start = time.perf_counter()
+                trtr_result = compute_shap_importance(
+                    X_real_tr, y_real_tr, X_real_te, shap_spec, seed, task,
+                    max_shap_samples=max_shap_samples,
+                )
+                elapsed = time.perf_counter() - t_start
+                print(f" done ({elapsed:.1f}s)")
+
+                trtr_imp = dict(zip(
+                    trtr_result["feature_names_original"],
+                    trtr_result["mean_abs_shap_original"],
+                ))
+                shap_trtr[task] = trtr_imp
+
+                # TSTR SHAP per synthesizer (train on synthetic, explain on real test)
+                shap_tstr[task] = {}
+                shap_rank_corrs[task] = {}
+                for synth_name, syn_df in synthetic_datasets.items():
+                    print(f"    > TSTR SHAP ({synth_name})...", end="", flush=True)
+                    t_start = time.perf_counter()
+                    X_syn, y_syn = _split_X_y_shap(syn_df, target, all_targets)
+                    tstr_result = compute_shap_importance(
+                        X_syn, y_syn, X_real_te, shap_spec, seed, task,
+                        max_shap_samples=max_shap_samples,
+                    )
+                    elapsed = time.perf_counter() - t_start
+                    print(f" done ({elapsed:.1f}s)")
+
+                    tstr_imp = dict(zip(
+                        tstr_result["feature_names_original"],
+                        tstr_result["mean_abs_shap_original"],
+                    ))
+                    shap_tstr[task][synth_name] = tstr_imp
+
+                    # Rank correlation vs TRTR
+                    rc = compute_shap_rank_correlation(trtr_imp, tstr_imp)
+                    shap_rank_corrs[task][synth_name] = rc
+                    print(f"      Spearman ρ = {rc['spearman_rho']:.4f}  (p = {rc['p_value']:.4f}, n = {rc['n_features']})")
+
+            # Store SHAP results in each synthesizer's results dict
+            for synth_name in synthesizers:
+                if synth_name in results["synthesizers"]:
+                    results["synthesizers"][synth_name]["shap"] = {
+                        "classification": {
+                            "trtr_importance": shap_trtr.get("classification", {}),
+                            "tstr_importance": shap_tstr.get("classification", {}).get(synth_name, {}),
+                            "rank_correlation": shap_rank_corrs.get("classification", {}).get(synth_name, {}),
+                        },
+                        "regression": {
+                            "trtr_importance": shap_trtr.get("regression", {}),
+                            "tstr_importance": shap_tstr.get("regression", {}).get(synth_name, {}),
+                            "rank_correlation": shap_rank_corrs.get("regression", {}).get(synth_name, {}),
+                        },
+                        "config": {
+                            "n_estimators": SHAP_N_ESTIMATORS,
+                            "max_shap_samples": max_shap_samples,
+                        },
+                    }
+
+            print(f"[{dataset.upper()}] [OK] SHAP analysis complete\n")
+        else:
+            print(f"[{dataset.upper()}] [SKIP] SHAP analysis (shap package not installed)\n")
+
+        print(f"[{dataset.upper()}] Step 7/8: Saving consolidated results...")
         data_parquet = pd.concat(all_rows, axis=0, ignore_index=True)
         data_parquet.to_parquet(ds_out / "data.parquet", index=False)
         write_json(ds_out / "results.json", results)
@@ -2230,15 +2689,20 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
             quality = s["sdmetrics"]["overall_score"]
             c2st = s["c2st"]["effective_auc"]
             mia = s["mia"]["worst_case_effective_auc"]
+            shap_info = ""
+            if "shap" in s:
+                cls_rho = s["shap"].get("classification", {}).get("rank_correlation", {}).get("spearman_rho", float("nan"))
+                reg_rho = s["shap"].get("regression", {}).get("rank_correlation", {}).get("spearman_rho", float("nan"))
+                shap_info = f" | SHAP ρ(cls)={cls_rho:.3f}, ρ(reg)={reg_rho:.3f}"
             print(f"[{dataset.upper()}] {synth_name:20s}: Utility AUC={util_auc:.3f}, MAE={util_mae:.2f} | "
-                  f"Quality={quality:.3f}, C2ST={c2st:.3f}, MIA={mia:.3f}")
+                  f"Quality={quality:.3f}, C2ST={c2st:.3f}, MIA={mia:.3f}{shap_info}")
         print(f"[{dataset.upper()}] {'='*70}")
         print(f"[{dataset.upper()}] DATASET COMPLETE")
         print(f"[{dataset.upper()}] {'='*70}\n")
 
     # Generate cross-dataset visualizations after both datasets complete
     print("\n" + "="*70)
-    print("Step 7/7: Generating Cross-Dataset Publication Visualizations")
+    print("Step 8/8: Generating Cross-Dataset Publication Visualizations")
     print("="*70)
     
     figures_dir = ensure_dir(base_out / "figures updated")
@@ -2248,8 +2712,8 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     remove_glob(figures_dir, "*.png")
     print("[OK] Cleanup complete\n")
     
-    print("Creating 10 gold-standard cross-dataset comparison figures (fig2-fig11)...")
-    print("  Note: Generates fig2-fig11 only. Stale files will be removed.")
+    print("Creating up to 14 gold-standard cross-dataset comparison figures (fig2-fig14)...")
+    print("  Note: Generates fig2-fig11 (core) + fig12-fig14 (SHAP, if shap installed).")
     saved_figures = create_cross_dataset_visualizations(
         figures_dir, 
         all_dataset_results, 
@@ -2284,13 +2748,303 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, *, test_size: float = 0.3,
     return base_out
 
 
+def aggregate_seed_results(base_out: Path, seeds: List[int]) -> Path:
+    """
+    Aggregate results.json from multiple seed runs into a summary file.
+    
+    Produces seed_summary.json and seed_summary.csv with mean ± std across seeds.
+    
+    Expected results.json structure:
+        results["synthesizers"][synth_name]["utility"]["classification"]["rf_auc"]
+        results["synthesizers"][synth_name]["utility"]["regression"]["ridge_mae"]
+        results["synthesizers"][synth_name]["c2st"]["effective_auc"]
+        results["synthesizers"][synth_name]["mia"]["worst_case_effective_auc"]
+        results["synthesizers"][synth_name]["timing"]["total_seconds"]
+    """
+    import statistics
+    
+    datasets = ["oulad", "assistments"]
+    synthesizers = ["gaussian_copula", "ctgan", "tabddpm"]
+    
+    def safe_get_nested(d: Dict, *keys, default=None):
+        """Safely traverse nested dictionary."""
+        current = d
+        for key in keys:
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+    
+    # Collect all results
+    all_results: Dict[str, List[Dict[str, Any]]] = {ds: [] for ds in datasets}
+    
+    for seed in seeds:
+        seed_dir = base_out / f"seed_{seed}"
+        for dataset in datasets:
+            results_path = seed_dir / dataset / "results.json"
+            if results_path.exists():
+                with open(results_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_results[dataset].append({"seed": seed, "data": data})
+                    print(f"[Aggregation] Loaded: {results_path}")
+            else:
+                print(f"[Aggregation] WARN: Missing {results_path}")
+    
+    # Extract metrics per dataset/synthesizer
+    summary: Dict[str, Any] = {
+        "seeds": seeds,
+        "n_seeds_requested": len(seeds),
+        "n_seeds_observed_per_dataset": {},
+        "datasets": {},
+    }
+    
+    for dataset in datasets:
+        if not all_results[dataset]:
+            continue
+        
+        summary["n_seeds_observed_per_dataset"][dataset] = len(all_results[dataset])
+        summary["datasets"][dataset] = {"synthesizers": {}}
+        
+        for synth in synthesizers:
+            metrics_across_seeds = {
+                # TSTR classification (primary utility)
+                "tstr_cls_rf_auc": [],
+                "tstr_cls_lr_auc": [],
+                "tstr_cls_mean_auc": [],
+                "tstr_cls_rf_auc_ci_low": [],
+                "tstr_cls_rf_auc_ci_high": [],
+                # TSTR regression (primary utility)
+                "tstr_reg_rf_mae": [],
+                "tstr_reg_ridge_mae": [],
+                "tstr_reg_mean_mae": [],
+                # TRTR baselines (ceiling)
+                "trtr_cls_rf_auc": [],
+                "trtr_cls_lr_auc": [],
+                "trtr_reg_rf_mae": [],
+                "trtr_reg_ridge_mae": [],
+                # Privacy metrics
+                "c2st_effective_auc": [],
+                "mia_worst_case_effective_auc": [],
+                # Timing
+                "timing_total_seconds": [],
+                # SHAP feature importance preservation
+                "shap_spearman_rho_cls": [],
+                "shap_spearman_rho_reg": [],
+                "shap_p_value_cls": [],
+                "shap_p_value_reg": [],
+            }
+            
+            for result in all_results[dataset]:
+                synth_data = result["data"].get("synthesizers", {}).get(synth, {})
+                
+                if not synth_data:
+                    print(f"[Aggregation] WARN: No data for {dataset}/{synth} in seed {result['seed']}")
+                    continue
+                
+                # Extract utility metrics from nested structure
+                utility = synth_data.get("utility", {})
+                classification = utility.get("classification", {})
+                regression = utility.get("regression", {})
+                
+                # TSTR Classification
+                if "rf_auc" in classification:
+                    metrics_across_seeds["tstr_cls_rf_auc"].append(classification["rf_auc"])
+                if "lr_auc" in classification:
+                    metrics_across_seeds["tstr_cls_lr_auc"].append(classification["lr_auc"])
+                if "mean_auc" in classification:
+                    metrics_across_seeds["tstr_cls_mean_auc"].append(classification["mean_auc"])
+                
+                # TSTR Classification CI
+                rf_auc_ci = classification.get("rf_auc_ci", {})
+                if "ci_low" in rf_auc_ci:
+                    metrics_across_seeds["tstr_cls_rf_auc_ci_low"].append(rf_auc_ci["ci_low"])
+                if "ci_high" in rf_auc_ci:
+                    metrics_across_seeds["tstr_cls_rf_auc_ci_high"].append(rf_auc_ci["ci_high"])
+                
+                # TSTR Regression
+                if "rf_mae" in regression:
+                    metrics_across_seeds["tstr_reg_rf_mae"].append(regression["rf_mae"])
+                if "ridge_mae" in regression:
+                    metrics_across_seeds["tstr_reg_ridge_mae"].append(regression["ridge_mae"])
+                if "mean_mae" in regression:
+                    metrics_across_seeds["tstr_reg_mean_mae"].append(regression["mean_mae"])
+                
+                # TRTR Classification (ceiling)
+                if "trtr_rf_auc" in classification:
+                    metrics_across_seeds["trtr_cls_rf_auc"].append(classification["trtr_rf_auc"])
+                if "trtr_lr_auc" in classification:
+                    metrics_across_seeds["trtr_cls_lr_auc"].append(classification["trtr_lr_auc"])
+                
+                # TRTR Regression (ceiling)
+                if "trtr_rf_mae" in regression:
+                    metrics_across_seeds["trtr_reg_rf_mae"].append(regression["trtr_rf_mae"])
+                if "trtr_ridge_mae" in regression:
+                    metrics_across_seeds["trtr_reg_ridge_mae"].append(regression["trtr_ridge_mae"])
+                
+                # C2ST - try multiple keys for backward compatibility
+                c2st = synth_data.get("c2st", {})
+                c2st_val = c2st.get("effective_auc") or c2st.get("auc")
+                if c2st_val is not None:
+                    metrics_across_seeds["c2st_effective_auc"].append(c2st_val)
+                
+                # MIA
+                mia = synth_data.get("mia", {})
+                mia_val = mia.get("worst_case_effective_auc") or mia.get("effective_auc")
+                if mia_val is not None:
+                    metrics_across_seeds["mia_worst_case_effective_auc"].append(mia_val)
+                
+                # Timing
+                timing = synth_data.get("timing", {})
+                if "total_seconds" in timing:
+                    metrics_across_seeds["timing_total_seconds"].append(timing["total_seconds"])
+                
+                # SHAP rank correlations
+                shap_data = synth_data.get("shap", {})
+                shap_cls_rc = shap_data.get("classification", {}).get("rank_correlation", {})
+                if "spearman_rho" in shap_cls_rc and not np.isnan(shap_cls_rc["spearman_rho"]):
+                    metrics_across_seeds["shap_spearman_rho_cls"].append(shap_cls_rc["spearman_rho"])
+                    metrics_across_seeds["shap_p_value_cls"].append(shap_cls_rc["p_value"])
+                shap_reg_rc = shap_data.get("regression", {}).get("rank_correlation", {})
+                if "spearman_rho" in shap_reg_rc and not np.isnan(shap_reg_rc["spearman_rho"]):
+                    metrics_across_seeds["shap_spearman_rho_reg"].append(shap_reg_rc["spearman_rho"])
+                    metrics_across_seeds["shap_p_value_reg"].append(shap_reg_rc["p_value"])
+            
+            # Compute mean/std for each metric (using sample std for n>=2)
+            synth_summary = {}
+            for metric_name, values in metrics_across_seeds.items():
+                if len(values) >= 2:
+                    synth_summary[metric_name] = {
+                        "mean": statistics.mean(values),
+                        "std": statistics.stdev(values),  # sample std (n-1 denominator)
+                        "n_observed": len(values),
+                    }
+                elif len(values) == 1:
+                    synth_summary[metric_name] = {
+                        "mean": values[0],
+                        "std": 0.0,
+                        "n_observed": 1,
+                    }
+                # Skip metrics with no values (don't add empty entries)
+            
+            # Print diagnostic for missing metrics
+            missing = [k for k, v in metrics_across_seeds.items() if not v]
+            if missing and all_results[dataset]:
+                print(f"[Aggregation] INFO: {dataset}/{synth} missing metrics: {missing[:3]}{'...' if len(missing) > 3 else ''}")
+            
+            summary["datasets"][dataset]["synthesizers"][synth] = synth_summary
+    
+    # Write JSON
+    json_path = base_out / "seed_summary.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\n[Aggregation] Saved: {json_path}")
+    
+    # Write CSV
+    csv_path = base_out / "seed_summary.csv"
+    with open(csv_path, "w", encoding="utf-8") as f:
+        f.write("dataset,synthesizer,metric,mean,std,n_observed\n")
+        for dataset in datasets:
+            if dataset not in summary["datasets"]:
+                continue
+            for synth in synthesizers:
+                synth_data = summary["datasets"][dataset]["synthesizers"].get(synth, {})
+                for metric_name, stats in synth_data.items():
+                    f.write(f"{dataset},{synth},{metric_name},{stats['mean']:.6f},{stats['std']:.6f},{stats['n_observed']}\n")
+    print(f"[Aggregation] Saved: {csv_path}")
+    
+    # Print summary table
+    print("\n" + "=" * 100)
+    print("SEED SUMMARY: Key Metrics (mean ± std across seeds, sample std)")
+    print("=" * 100)
+    
+    for dataset in datasets:
+        if dataset not in summary["datasets"]:
+            continue
+        n_obs = summary["n_seeds_observed_per_dataset"].get(dataset, 0)
+        print(f"\n--- {dataset.upper()} ({n_obs} seeds observed) ---")
+        print(f"{'Synthesizer':<18} {'RF AUC (TSTR)':<16} {'Ridge MAE':<14} {'C2ST Eff':<14} {'MIA WC Eff':<14} {'SHAP ρ cls':<12} {'SHAP ρ reg':<12} {'Time (s)':<12}")
+        print("-" * 120)
+        for synth in synthesizers:
+            synth_data = summary["datasets"][dataset]["synthesizers"].get(synth, {})
+            
+            # Extract metrics with safe fallbacks
+            cls_auc = synth_data.get("tstr_cls_rf_auc", {})
+            reg_mae = synth_data.get("tstr_reg_ridge_mae", {})
+            c2st = synth_data.get("c2st_effective_auc", {})
+            mia = synth_data.get("mia_worst_case_effective_auc", {})
+            shap_cls = synth_data.get("shap_spearman_rho_cls", {})
+            shap_reg = synth_data.get("shap_spearman_rho_reg", {})
+            timing = synth_data.get("timing_total_seconds", {})
+            
+            # Format: AUC to 3 decimals, MAE to 2 decimals, time to 2 decimals
+            cls_str = f"{cls_auc.get('mean', 0):.3f}±{cls_auc.get('std', 0):.3f}" if cls_auc else "N/A"
+            reg_str = f"{reg_mae.get('mean', 0):.2f}±{reg_mae.get('std', 0):.2f}" if reg_mae else "N/A"
+            c2st_str = f"{c2st.get('mean', 0):.3f}±{c2st.get('std', 0):.3f}" if c2st else "N/A"
+            mia_str = f"{mia.get('mean', 0):.3f}±{mia.get('std', 0):.3f}" if mia else "N/A"
+            shap_cls_str = f"{shap_cls.get('mean', 0):.3f}±{shap_cls.get('std', 0):.3f}" if shap_cls else "N/A"
+            shap_reg_str = f"{shap_reg.get('mean', 0):.3f}±{shap_reg.get('std', 0):.3f}" if shap_reg else "N/A"
+            time_str = f"{timing.get('mean', 0):.2f}±{timing.get('std', 0):.2f}" if timing else "N/A"
+            
+            print(f"{synth:<18} {cls_str:<16} {reg_str:<14} {c2st_str:<14} {mia_str:<14} {shap_cls_str:<12} {shap_reg_str:<12} {time_str:<12}")
+    
+    print("\n" + "=" * 100)
+    
+    return json_path
+
+
+def run_all_seeds(
+    raw_dir: str | Path,
+    out_dir: str | Path,
+    seeds: List[int],
+    *,
+    test_size: float = 0.3,
+    quick: bool = False,
+) -> Path:
+    """
+    Run full experimental matrix for multiple seeds.
+    
+    Each seed writes to a separate subfolder: out_dir/seed_{seed}/
+    After all seeds complete, produces seed_summary.json and seed_summary.csv.
+    """
+    base_out = ensure_dir(Path(out_dir))
+    
+    print("\n" + "=" * 70)
+    print("SYNTHLA-EDU V2: Multi-Seed Experimental Run")
+    print("=" * 70)
+    print(f"Seeds: {seeds}")
+    print(f"Output: {base_out}")
+    print(f"Quick Mode: {quick}")
+    print("=" * 70 + "\n")
+    
+    for i, seed in enumerate(seeds, 1):
+        print(f"\n{'#' * 70}")
+        print(f"# SEED {seed} ({i}/{len(seeds)})")
+        print(f"{'#' * 70}\n")
+        
+        seed_out_dir = base_out / f"seed_{seed}"
+        run_all(raw_dir, seed_out_dir, test_size=test_size, seed=seed, quick=quick)
+    
+    print("\n" + "=" * 70)
+    print("All seeds completed. Aggregating results...")
+    print("=" * 70)
+    
+    summary_path = aggregate_seed_results(base_out, seeds)
+    
+    print(f"\n✓ Multi-seed run complete!")
+    print(f"  Per-seed results: {base_out}/seed_*/")
+    print(f"  Summary: {summary_path}")
+    
+    return base_out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Single-file SYNTHLA-EDU runner (KISS)")
     parser.add_argument("--dataset", type=str, choices=["oulad", "assistments"], required=False)
     parser.add_argument("--raw-dir", type=str, required=False, help="Path to raw CSV folder for the dataset")
     parser.add_argument("--out-dir", type=str, required=False, help="Output directory for results")
     parser.add_argument("--test-size", type=float, default=0.3)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0, help="Single seed for reproducibility")
+    parser.add_argument("--seeds", type=str, default=None, help="Comma-separated list of seeds for multi-seed runs (e.g., 0,1,2,3,4)")
     parser.add_argument("--synthesizer", type=str, choices=["gaussian_copula", "ctgan", "tabddpm"], default="gaussian_copula", help="Synthesizer model to use")
     parser.add_argument("--run-all", action="store_true", help="Run full 2x3 matrix and write consolidated outputs per dataset")
     parser.add_argument("--quick", action="store_true", help="Reduce compute (fewer CTGAN epochs and TabDDPM iterations)")
@@ -2298,6 +3052,16 @@ def main() -> None:
     parser.add_argument("--compare", type=str, default=None, help="Dataset directory to generate model comparison chart from results.json")
     args = parser.parse_args()
 
+    # Multi-seed run with --run-all and --seeds
+    if args.run_all and args.seeds:
+        if not (args.raw_dir and args.out_dir):
+            parser.error("--raw-dir and --out-dir are required for --run-all --seeds")
+        seeds = [int(s.strip()) for s in args.seeds.split(",")]
+        out = run_all_seeds(args.raw_dir, args.out_dir, seeds, test_size=args.test_size, quick=args.quick)
+        print(f"Multi-seed run-all completed. Outputs at: {out}")
+        return
+
+    # Single-seed run with --run-all
     if args.run_all:
         if not (args.raw_dir and args.out_dir):
             parser.error("--raw-dir and --out-dir are required for --run-all")
@@ -2324,6 +3088,108 @@ def main() -> None:
         quick=args.quick,
     )
     print(f"Done. Results saved to: {out}")
+
+
+def self_check_metrics(results_json_path: Optional[str] = None, c2st_json_path: Optional[str] = None) -> None:
+    """
+    Self-check function to verify metric extraction from results.json and c2st__*.json.
+    
+    Usage:
+        from synthla_edu_v2 import self_check_metrics
+        self_check_metrics("runs/oulad/results.json", "runs/oulad/c2st__gaussian_copula.json")
+    
+    Or run from command line:
+        python -c "from synthla_edu_v2 import self_check_metrics; self_check_metrics('runs/oulad/results.json')"
+    """
+    print("=" * 70)
+    print("METRIC EXTRACTION SELF-CHECK")
+    print("=" * 70)
+    
+    # Check results.json (utility metrics)
+    if results_json_path:
+        print(f"\n[1] Checking results.json: {results_json_path}")
+        try:
+            with open(results_json_path, "r", encoding="utf-8") as f:
+                results = json.load(f)
+            
+            synthesizers = results.get("synthesizers", {})
+            if not synthesizers:
+                print("    ERROR: No 'synthesizers' key found in results.json")
+            else:
+                for synth_name, synth_data in synthesizers.items():
+                    print(f"\n    --- {synth_name} ---")
+                    
+                    # Utility metrics
+                    utility = synth_data.get("utility", {})
+                    classification = utility.get("classification", {})
+                    regression = utility.get("regression", {})
+                    
+                    tstr_rf_auc = classification.get("rf_auc")
+                    tstr_ridge_mae = regression.get("ridge_mae")
+                    trtr_rf_auc = classification.get("trtr_rf_auc")
+                    
+                    print(f"    TSTR RF AUC:    {tstr_rf_auc}")
+                    print(f"    TSTR Ridge MAE: {tstr_ridge_mae}")
+                    print(f"    TRTR RF AUC:    {trtr_rf_auc}")
+                    
+                    if tstr_rf_auc is None:
+                        print("    WARNING: tstr_rf_auc is None - check utility structure")
+                    
+                    # C2ST metrics
+                    c2st = synth_data.get("c2st", {})
+                    c2st_eff = c2st.get("effective_auc")
+                    print(f"    C2ST Eff AUC:   {c2st_eff}")
+                    
+                    if c2st_eff is None:
+                        print("    WARNING: c2st effective_auc is None")
+                    
+                    # MIA metrics
+                    mia = synth_data.get("mia", {})
+                    mia_wc = mia.get("worst_case_effective_auc")
+                    print(f"    MIA WC Eff AUC: {mia_wc}")
+                    
+                    # Timing
+                    timing = synth_data.get("timing", {})
+                    total_sec = timing.get("total_seconds")
+                    print(f"    Total Seconds:  {total_sec}")
+                    
+        except FileNotFoundError:
+            print(f"    ERROR: File not found: {results_json_path}")
+        except json.JSONDecodeError as e:
+            print(f"    ERROR: JSON decode error: {e}")
+    
+    # Check c2st__*.json directly
+    if c2st_json_path:
+        print(f"\n[2] Checking C2ST JSON: {c2st_json_path}")
+        try:
+            with open(c2st_json_path, "r", encoding="utf-8") as f:
+                c2 = json.load(f)
+            
+            print(f"    Keys present: {list(c2.keys())}")
+            
+            # Try all possible keys
+            for key in ["effective_auc_mean", "effective_auc", "auc_mean", "auc"]:
+                val = c2.get(key)
+                status = "✓" if val is not None else "✗"
+                print(f"    {status} {key}: {val}")
+            
+            # Use read_metric helper
+            extracted = read_metric(c2, ["effective_auc_mean", "effective_auc", "auc_mean", "auc"])
+            print(f"\n    read_metric() extracted: {extracted}")
+            
+            if extracted == 0.0 and any(c2.get(k) for k in ["effective_auc_mean", "effective_auc", "auc_mean", "auc"]):
+                print("    WARNING: read_metric returned 0 but values exist!")
+            elif extracted > 0:
+                print(f"    OK: Non-zero value extracted ({extracted:.4f})")
+            
+        except FileNotFoundError:
+            print(f"    ERROR: File not found: {c2st_json_path}")
+        except json.JSONDecodeError as e:
+            print(f"    ERROR: JSON decode error: {e}")
+    
+    print("\n" + "=" * 70)
+    print("Self-check complete.")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

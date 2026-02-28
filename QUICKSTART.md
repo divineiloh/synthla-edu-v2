@@ -1,184 +1,118 @@
-# SYNTHLA-EDU V2: Quick Start After Fixes
+# SYNTHLA-EDU V2: Quick Start Guide
 
-## ✅ All Critical Fixes Applied
+## Prerequisites
 
-The following issues have been resolved:
-1. ✅ **OULAD target leakage** (classification + regression)
-2. ✅ **ASSISTments cross-target leakage**
-3. ✅ **Reproducibility seeding** (torch + numpy + random)
-4. ✅ **Figure layout consistency** (300 DPI + bbox_inches='tight')
-5. ✅ **Code compilation** (verified with py_compile)
+- Python 3.11+
+- Raw datasets placed in `data/raw/` (see [README.md](README.md#2-download-data))
 
----
+## Install
 
-## 🚀 Next Steps: Run Full Benchmark
-
-### Option 1: Full Experimental Run (Recommended)
-```powershell
-# Clean run with all fixes (2-8 hours depending on hardware)
-python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs_fixed --seed 42
-
-# Verify fixes worked correctly
-python verify_fixes.py --results-dir runs_fixed
-```
-
-### Option 2: Quick Test Run (15-30 minutes)
-```powershell
-# Quick validation run with reduced samples (n=500 instead of n=train_size)
-python synthla_edu_v2.py --run-all --quick --raw-dir data/raw --out-dir runs_quick --seed 42
-
-# Verify structure (metrics will be less stable due to --quick mode)
-python verify_fixes.py --results-dir runs_quick
+```bash
+pip install -r requirements-locked.txt
 ```
 
 ---
 
-## 📊 Expected Results Post-Fix
+## Running Experiments
 
-### OULAD Dataset:
-| Metric | Before Fix | After Fix |
-|--------|-----------|-----------|
-| Classification AUC | ~1.0 (leakage) | 0.75-0.85 (realistic) |
-| Regression MAE | ~0.0 (leakage) | 5.0-15.0 (realistic) |
+### Single-Seed Run
 
-### ASSISTments Dataset:
-| Metric | Before Fix | After Fix |
-|--------|-----------|-----------|
-| Classification AUC | Contaminated | 0.65-0.80 (clean) |
-| Regression MAE | Contaminated | 0.08-0.15 (clean) |
+```bash
+# Full matrix (2 datasets × 3 synthesizers, ~3-6 hours on CPU)
+python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --seed 42
 
-### Figures:
-- **Before**: 12 files with numbering gaps (fig9_computational_efficiency stale)
-- **After**: 10 files correctly numbered (fig1-fig10)
+# Quick smoke test (~30 minutes)
+python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --quick
+```
+
+### Multi-Seed Run (Publication)
+
+```bash
+python synthla_edu_v2.py \
+  --run-all --raw-dir data/raw --out-dir runs_publication \
+  --seeds 0,1,2,3,4
+```
+
+### Regenerate Publication Figures
+
+After multi-seed runs complete:
+
+```bash
+# All 16 figures (fig2–fig17) at 1200 DPI
+python scripts/generate_all_figures.py
+
+# Skip SHAP beeswarm plots (faster)
+python scripts/generate_all_figures.py --skip-beeswarm
+```
+
+Output: `runs_publication/figures_aggregated/fig2.png` – `fig17.png`
 
 ---
 
-## 🔍 Verification Checklist
-
-After running the benchmark, verify:
+## Verification
 
 ```powershell
-# 1. Check figure count (should be exactly 10)
-Get-ChildItem runs_fixed\figures\*.png | Measure-Object
+# Check results exist for both datasets
+Test-Path runs/oulad/results.json
+Test-Path runs/assistments/results.json
 
-# 2. Verify no leakage columns in OULAD data
-python -c "import pandas as pd; df = pd.read_parquet('runs_fixed/oulad/gaussian_copula/data.parquet'); print('Columns:', len(df.columns)); assert 'final_result' not in df.columns; print('✅ No leakage')"
+# Check figure count (should be 16 for multi-seed, or per-run figures in runs/figures/)
+Get-ChildItem runs_publication/figures_aggregated/*.png | Measure-Object
 
-# 3. Check utility metrics are realistic (not perfect)
-python -c "import json; r = json.load(open('runs_fixed/oulad/results.json')); auc = r['synthesizers']['gaussian_copula']['utility']['classification']['rf_auc']; print(f'OULAD AUC: {auc:.4f}'); assert auc < 0.95, 'AUC too high (possible leakage)'; print('✅ Realistic')"
-
-# 4. Run comprehensive verification script
-python verify_fixes.py --results-dir runs_fixed
+# Run test suite
+pytest -q
 ```
 
 ---
 
-## 📁 Output Structure
+## Output Structure
 
-After running `--run-all`, expect:
+### Single-Seed (`--run-all`)
 
 ```
-runs_fixed/
-├── assistments/
-│   ├── results.json                    # Benchmark results
-│   ├── gaussian_copula/
-│   │   ├── data.parquet               # Synthetic data (no leakage columns)
-│   │   ├── metrics_summary.png        # Per-synthesizer visualization
-│   ├── ctgan/
-│   │   └── ...
-│   └── tabddpm/
-│       └── ...
-├── oulad/
-│   ├── results.json
-│   ├── gaussian_copula/
-│   │   └── ...
-│   ├── ctgan/
-│   │   └── ...
-│   └── tabddpm/
-│       └── ...
-└── figures/
-    ├── fig1.png  # Classification Utility - OULAD
-    ├── fig2.png  # Classification Utility - ASSISTMENTS
-    ├── fig3.png  # Regression Utility - OULAD
-    ├── fig4.png  # Regression Utility - ASSISTMENTS
-    ├── fig5.png  # Statistical Quality (SDMetrics)
-    ├── fig6.png  # Privacy Preservation (MIA)
-    ├── fig7.png  # Performance Heatmap - OULAD
-    ├── fig8.png  # Performance Heatmap - ASSISTMENTS
-    ├── fig9.png  # Per-Attacker Privacy - OULAD
-    └── fig10.png # Per-Attacker Privacy - ASSISTMENTS
+runs/
+├── oulad/results.json
+├── assistments/results.json
+└── figures/                  # Auto-generated cross-dataset figures
+```
+
+### Multi-Seed (`--seeds 0,1,2,3,4`)
+
+```
+runs_publication/
+├── seed_0/ – seed_4/         # Per-seed results
+│   ├── oulad/results.json
+│   └── assistments/results.json
+├── seed_summary.json          # Aggregated summary
+├── seed_summary.csv
+└── figures_aggregated/        # 16 publication figures (1200 DPI)
+    └── fig2.png – fig17.png
 ```
 
 ---
 
-## ⚠️ Known Issues
+## Troubleshooting
 
-### Stale Figure Files in `runs/figures/`
-**Status**: Files are locked and cannot be deleted during current session.
+### ModuleNotFoundError
 
-**Workaround**: The code automatically cleans the directory before generating new figures (`remove_glob(figures_dir, "*.png")` at line 1850). These stale files will be removed on the next run.
-
-**Stale files that will be auto-deleted**:
-- `fig9_computational_efficiency.png` (from old version)
-- `fig10_per_attacker_privacy.png` (from old version)
-- `fig11_distribution_fidelity.png` (from old version)
-- `fig12_correlation_matrices.png` (from old version)
-
----
-
-## 📖 Documentation
-
-- **Comprehensive Fix Details**: See [FIXES_APPLIED.md](FIXES_APPLIED.md)
-- **Repository README**: See [README.md](README.md)
-- **Data Schemas**: See [DATA_SCHEMA.md](DATA_SCHEMA.md)
-- **Verification Script**: Run `python verify_fixes.py --help`
-
----
-
-## 🎯 Success Criteria
-
-Your run is successful if:
-1. ✅ `verify_fixes.py` passes all 5 checks
-2. ✅ Exactly 10 figures generated in `runs_fixed/figures/`
-3. ✅ Utility metrics are realistic (AUC < 0.95, MAE > 2.0 for OULAD)
-4. ✅ No leakage columns in saved parquet files
-5. ✅ results.json files exist for both datasets
-
----
-
-## 💡 Troubleshooting
-
-### "ModuleNotFoundError: No module named 'X'"
-```powershell
-pip install -r requirements.txt
+```bash
+pip install -r requirements-locked.txt
 ```
 
-### "RuntimeError: CUDA out of memory"
-```powershell
-# Use CPU mode or reduce batch size
-python synthla_edu_v2.py --run-all --quick --raw-dir data/raw --out-dir runs_fixed
+### CUDA Out of Memory
+
+The pipeline auto-detects GPU. For CPU-only:
+
+```bash
+CUDA_VISIBLE_DEVICES="" python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs
 ```
 
-### Figures still show wrong numbering
-```powershell
-# Manually delete stale figures before running
-Remove-Item "runs\figures\*.png" -Force
-python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs_fixed
+### Docker
+
+```bash
+docker build -t synthla-edu-v2 .
+docker run -v $(pwd)/data/raw:/app/data/raw -v $(pwd)/runs:/app/runs \
+  synthla-edu-v2 python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs
 ```
 
----
-
-## 📧 Support
-
-If verification fails or you encounter unexpected results:
-1. Check `FIXES_APPLIED.md` for detailed fix documentation
-2. Run `python verify_fixes.py --results-dir runs_fixed` for diagnostic output
-3. Inspect logs in terminal output for error messages
-4. Compare your results against expected values in this guide
-
----
-
-**Ready to run?** Execute:
-```powershell
-python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs_fixed --seed 42
-```
+See [DOCKER.md](DOCKER.md) for details.

@@ -17,3 +17,7 @@ synthcity>=0.2.11
 
 # Optional (for attacker / C2ST with XGBoost)
 xgboost>=2.0
+
+# SHAP feature importance analysis
+shap>=0.42
+scipy>=1.10

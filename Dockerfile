@@ -20,6 +20,8 @@ RUN pip install --no-cache-dir -r requirements-locked.txt
 
 # Copy application code
 COPY synthla_edu_v2.py ./
+COPY scripts/ scripts/
+COPY utils/ utils/
 COPY DATA_SCHEMA.md LICENSE VERSION README.md ./
 
 # Create directories for data and outputs

@@ -2,13 +2,13 @@
 
 <div align="center">
 
-**Benchmark for synthetic educational data generation with comprehensive privacy-aware evaluation and publication-quality visualizations.**
+**Privacy-aware benchmark for synthetic educational data generation with multi-seed reproducibility and publication-quality visualizations.**
 
 ![CI Tests](https://github.com/divineiloh/synthla-edu-v2/workflows/CI%20Tests/badge.svg)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-[Quick Start](#quick-start) • [Features](#features) • [Visualizations](#publication-visualizations) • [Metrics](#key-metrics)
+[Quick Start](#quick-start) • [Visualizations](#publication-visualizations) • [Metrics](#key-metrics) • [Multi-Seed Runs](#multi-seed-runs)
 
 </div>
 
@@ -18,10 +18,10 @@
 
 Single-file Python benchmark for evaluating synthetic data generators on educational datasets:
 
-- **Datasets**: OULAD (student-level) and ASSISTments (student-level aggregated)
+- **Datasets**: OULAD (student-level) and ASSISTments 2012–2013 (student-level aggregated)
 - **Synthesizers**: Gaussian Copula (SDV), CTGAN (SDV), TabDDPM (Synthcity)
-- **Evaluation**: Quality (SDMetrics), Utility (TSTR/TRTR), Realism (C2ST with ID exclusion), Privacy (Multi-attacker MIA), Statistical rigor (Paired permutation tests)
-- **Visualizations**: 10 publication-quality figures (300 DPI, color-blind friendly)
+- **Evaluation**: Quality (SDMetrics), Utility (TSTR/TRTR), Realism (C2ST), Privacy (Multi-attacker MIA), Statistical rigor (Paired permutation tests with Bonferroni correction)
+- **Visualizations**: 16 publication-quality figures at 1 200 DPI (fig2–fig17), including SHAP beeswarm plots
 
 ## Quick Start
 
@@ -31,10 +31,10 @@ Single-file Python benchmark for evaluating synthetic data generators on educati
 git clone https://github.com/divineiloh/synthla-edu-v2.git
 cd synthla-edu-v2
 
-# Recommended: Use locked versions for exact reproducibility
+# Recommended: locked versions for exact reproducibility
 pip install -r requirements-locked.txt
 
-# Alternative: Minimum versions (may differ from paper)
+# Alternative: minimum versions (may differ from paper)
 # pip install -r requirements.txt
 ```
 
@@ -43,407 +43,235 @@ pip install -r requirements-locked.txt
 Download datasets and place in `data/raw/`:
 
 - **OULAD**: [analyse.kmi.open.ac.uk/open-dataset](https://analyse.kmi.open.ac.uk/open-dataset) → `data/raw/oulad/`
-- **ASSISTments**: [assistments.org](https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data) → `data/raw/assistments/`
+- **ASSISTments 2012–2013**: [sites.google.com/site/assistmentsdata/datasets/2012-13-school-data-with-affect](https://sites.google.com/site/assistmentsdata/datasets/2012-13-school-data-with-affect) → `data/raw/assistments/`
 
 ### 3. Run
 
-> **⚠️ IMPORTANT: Quick Mode vs Full Mode**
-> 
-> **`--quick` mode is for smoke testing and pipeline validation only.** Metrics from quick mode are NOT representative and may show very poor realism (often C2ST close to 1.0). Note that some model+dataset combinations can also yield poor realism in full mode; do not assume `--quick` is the only reason.
-> - CTGAN: 100 epochs (vs 300 full)
-> - TabDDPM: 300 iterations (vs 1200 full)
-> - Bootstrap: 100 resamples (vs 1000 full)
+> **⚠️ Quick Mode vs Full Mode**
+>
+> `--quick` is for smoke testing only. Metrics are NOT representative (under-trained models).
+> - CTGAN: 100 epochs (vs 300 full) · TabDDPM: 300 iterations (vs 1 200 full) · Bootstrap: 100 resamples (vs 1 000 full)
 >
 > **Always run WITHOUT `--quick` for evaluation or publication.**
 
-**Option A: Native Python**
-
-Full experimental matrix (2 datasets × 3 synthesizers):
 ```bash
-# Consolidated outputs: data.parquet + results.json per dataset
-python synthla_edu_v2.py \
-  --run-all \
-  --raw-dir data/raw \
-  --out-dir runs
-```
+# Full matrix (2 datasets × 3 synthesizers)
+python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --seed 42
 
-**Quick mode (smoke testing only - NOT for evaluation):**
-```bash
+# Quick smoke test
 python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs --quick
 ```
 
-**Option B: Docker (optional, fully reproducible environment)**
+**Docker** (optional):
 
 ```bash
-# Build image
 docker build -t synthla-edu-v2 .
-
-# Run with mounted data/output directories
-docker run -v $(pwd)/data/raw:/app/data/raw \
-           -v $(pwd)/runs:/app/runs \
-           synthla-edu-v2 \
-           python synthla_edu_v2.py --run-all --quick --raw-dir data/raw --out-dir runs
+docker run -v $(pwd)/data/raw:/app/data/raw -v $(pwd)/runs:/app/runs \
+  synthla-edu-v2 python synthla_edu_v2.py --run-all --raw-dir data/raw --out-dir runs
 ```
 
-See [DOCKER.md](DOCKER.md) for detailed Docker instructions, GPU support, and docker-compose setup.
-
-**Single synthesizer (legacy, per-synth outputs):**
-```bash
-# Gaussian Copula on OULAD
-python synthla_edu_v2.py \
-  --dataset oulad \
-  --raw-dir data/raw/oulad \
-  --out-dir runs/oulad_gc \
-  --synthesizer gaussian_copula
-
-# CTGAN on ASSISTments
-python synthla_edu_v2.py \
-  --dataset assistments \
-  --raw-dir data/raw/assistments \
-  --out-dir runs/assistments_ctgan \
-  --synthesizer ctgan
-
-# TabDDPM on OULAD
-python synthla_edu_v2.py \
-  --dataset oulad \
-  --raw-dir data/raw/oulad \
-  --out-dir runs/oulad_tabddpm \
-  --synthesizer tabddpm
-```
+See [DOCKER.md](DOCKER.md) for GPU support and docker-compose.
 
 ### 4. View Results
 
-**Consolidated outputs per dataset:**
 ```bash
-# View per-dataset metrics
 cat runs/oulad/results.json
 cat runs/assistments/results.json
-
-# View 11 cross-dataset comparison visualizations
-ls runs/figures/fig*_*.png
+ls runs/figures/              # Cross-dataset comparison figures
 ```
+
+## Multi-Seed Runs
+
+For publication-quality results with error bars across seeds:
+
+```bash
+python synthla_edu_v2.py \
+  --run-all --raw-dir data/raw --out-dir runs_publication \
+  --seeds 0,1,2,3,4
+```
+
+This creates `runs_publication/seed_0/` through `seed_4/`, each containing per-dataset `results.json`. The aggregated figure script then produces mean ± std plots across all seeds.
+
+### Regenerate Figures
+
+After multi-seed runs complete, regenerate all 16 publication figures:
+
+```bash
+python scripts/generate_all_figures.py                  # all 16 figures
+python scripts/generate_all_figures.py --skip-beeswarm  # skip fig14/fig15 (faster)
+```
+
+Output: `runs_publication/figures_aggregated/fig2.png` – `fig17.png`
 
 ## Publication Visualizations
 
-SYNTHLA-EDU V2 automatically generates **10 publication-quality cross-dataset comparison figures** (300 DPI, color-blind friendly) after both datasets complete:
+The figure pipeline produces **16 publication-quality figures** (1 200 DPI, color-blind friendly) numbered fig2–fig17:
 
-### Core Evaluation Figures (8 figures)
-1. **Classification Utility - OULAD** - Dropout prediction performance
-2. **Classification Utility - ASSISTMENTS** - Correctness prediction performance
-3. **Regression Utility - OULAD** - Grade prediction MAE
-4. **Regression Utility - ASSISTMENTS** - Score prediction MAE
-5. **Data Quality** - SDMetrics scores across both datasets
-6. **Privacy (MIA)** - Worst-case membership inference attack comparison
-7. **Performance Heatmap - OULAD** - All metrics grid
-8. **Performance Heatmap - ASSISTMENTS** - All metrics grid
-6. **Radar Chart** - Multi-dimensional synthesizer profiles
-7. **Classification CI** - Bootstrap confidence intervals for AUC
-8. **Regression CI** - Bootstrap confidence intervals for MAE
-
-### Supplementary Analysis Figures (2 figures)
-9. **Per-Attacker Privacy - OULAD** - LR/RF/XGBoost attacker breakdown
-10. **Per-Attacker Privacy - ASSISTMENTS** - LR/RF/XGBoost attacker breakdown
-
-**All 10 figures** are automatically generated in `runs/figures/` when running `--run-all`.
+| Figure | Description |
+|--------|-------------|
+| fig2 | OULAD classification utility (TSTR bar chart) |
+| fig3 | ASSISTments classification utility |
+| fig4 | OULAD regression utility (TSTR bar chart) |
+| fig5 | ASSISTments regression utility |
+| fig6 | SDMetrics quality scores (grouped bar) |
+| fig7 | MIA worst-case effective AUC (grouped bar) |
+| fig8 | OULAD MIA per-attacker breakdown |
+| fig9 | ASSISTments MIA per-attacker breakdown |
+| fig10 | OULAD SHAP feature importance – Classification (top 7) |
+| fig11 | OULAD SHAP feature importance – Regression (top 7) |
+| fig12 | ASSISTments SHAP feature importance – Classification |
+| fig13 | ASSISTments SHAP feature importance – Regression |
+| fig14 | SHAP beeswarm – OULAD Classification TRTR (top 10 features) |
+| fig15 | SHAP beeswarm – OULAD Classification TSTR TabDDPM (top 10 features) |
+| fig16 | OULAD multi-objective performance heatmap |
+| fig17 | ASSISTments multi-objective performance heatmap |
 
 ### Quality Standards
-- ✅ 300 DPI resolution (print-ready)
+- ✅ 1 200 DPI resolution (IEEE print-ready)
 - ✅ Color-blind friendly palette
-- ✅ All text legible (10-14pt fonts)
-- ✅ No overlapping elements
+- ✅ All text legible at single-column width
+- ✅ SHAP beeswarm feature names at 24 pt
 - ✅ Professional styling with value annotations
 
 ## Outputs
 
 Each dataset in `runs/<dataset>/` contains:
-- **`data.parquet`** — Consolidated data with columns: `[..., split: {real_train, real_test, synthetic_train}, synthesizer: {real, gaussian_copula, ctgan, tabddpm}]`
 - **`results.json`** — Comprehensive metrics for all 3 synthesizers:
   - `synthesizers.<name>`: `{sdmetrics, c2st, mia, utility, timing}` with bootstrap CIs
-    - `utility.per_sample`: Individual errors for all test samples (nested under utility)
   - `pairwise_tests`: Statistical significance tests
 
-Cross-dataset visualizations in `runs/figures/`:
-- **`fig1-fig10.png`** — 10 publication-ready cross-dataset comparison figures
-
-**Output size**: 
-- Per dataset: ~10-15MB (data + results)
-- Figures: ~5MB (10 high-resolution PNGs)
+Cross-dataset visualizations in `runs/figures/` (single-seed) or `runs_publication/figures_aggregated/` (multi-seed).
 
 ## Key Metrics
 
-> **Note on C2ST and MIA Interpretation:**
-> 
-> **C2ST (Classifier Two-Sample Test)** measures how easily a classifier can distinguish synthetic from real data:
-> - `effective_auc = max(auc, 1-auc)` ensures the metric is in [0.5, 1.0]
-> - **0.5 = ideal** (indistinguishable; classifier performs at chance)
-> - **1.0 = worst** (perfectly distinguishable; synthetic is easily detected)
-> - **Lower is better** for realism
->
-> **MIA (Membership Inference Attack)** measures privacy leakage:
-> - **0.5 = ideal** (no leakage; attacker performs at chance)
-> - **1.0 = worst** (total leakage; training records perfectly identified)
-> - **Lower is better** for privacy
+> **C2ST**: 0.5 = ideal (indistinguishable), 1.0 = worst (lower is better)
+> **MIA**: 0.5 = ideal (no leakage), 1.0 = worst (lower is better)
 
 | Metric | Range | Interpretation |
 |--------|-------|----------------|
-| **Quality** (SDMetrics overall_score) | 0–1 (0–100% in figures) | Statistical similarity to real data (stored as 0–1; displayed as %; higher = better) |
-| **Utility** (TSTR/TRTR AUC) | 0–1 | Predictive performance on downstream tasks (higher = better) |
-| **Realism** (C2ST effective_auc) | 0.5–1.0 | Detectability by classifier: 0.5 = indistinguishable, 1.0 = fully distinguishable (lower = better) |
-| **Privacy** (MIA worst_case_effective_auc) | 0.5–1.0 | Membership inference risk: 0.5 = no leakage, 1.0 = total leakage (lower = better) |
-| **Bootstrap CI** | 95% | Confidence intervals from 1,000 resamples per metric |
-| **Permutation test p-value** | [0, 1] | Significance of pairwise model differences (lower = significant) |
+| **Quality** (SDMetrics) | 0–1 | Statistical similarity to real data (higher = better) |
+| **Utility** (TSTR/TRTR AUC) | 0–1 | Downstream predictive performance (higher = better) |
+| **Realism** (C2ST effective AUC) | 0.5–1.0 | Detectability (lower = better) |
+| **Privacy** (MIA worst-case) | 0.5–1.0 | Membership inference risk (lower = better) |
+| **Bootstrap CI** | 95% | 1 000 resamples per metric |
+| **Permutation p-value** | [0, 1] | Pairwise significance (Bonferroni-adjusted α = 0.0083) |
 
 ## Statistical Methods
 
 ### Multiple Testing Correction
 
-We control family-wise error rate (FWER) using **Bonferroni correction** across all pairwise synthesizer comparisons:
+Bonferroni correction across all pairwise comparisons:
+- 6 tests (3 pairs × 2 metrics) · α = 0.05/6 = **0.0083**
+- Paired permutation tests (10 000 permutations)
 
-- **Total tests**: 6 (3 synthesizer pairs × 2 metrics: classification + regression)
-- **Original α**: 0.05
-- **Adjusted α**: 0.05/6 = **0.0083**
-- **Interpretation**: Reject H₀ if p < 0.0083
-- **Rationale**: Controls Type I error rate at 5% across the entire family of tests
+### Effect Sizes
 
-All pairwise comparisons use **paired permutation tests** (10,000 permutations) for p-value estimation, ensuring non-parametric robustness without distributional assumptions.
+Cohen's d: |d| < 0.2 negligible · 0.2–0.5 small · 0.5–0.8 medium · ≥ 0.8 large
 
-### Effect Size Quantification
+### Evaluation Design
 
-Effect sizes are quantified using **Cohen's d** for all pairwise comparisons:
+- **C2ST** excludes ID + target columns (measures distribution fidelity on features only)
+- **MIA** excludes ID columns only, targets included (worst-case adversary)
 
-```
-Cohen's d = (mean difference) / (pooled standard deviation)
-```
+### Hyperparameters
 
-**Interpretation benchmarks** (standard thresholds):
-- |d| < 0.2: **negligible** effect
-- 0.2 ≤ |d| < 0.5: **small** effect  
-- 0.5 ≤ |d| < 0.8: **medium** effect
-- |d| ≥ 0.8: **large** effect
-
-**Purpose**: Distinguish statistical significance ("is there a difference?") from practical significance ("does the difference matter?"). A result can be statistically significant (p < 0.0083) yet have negligible practical impact (d < 0.2).
-
-### Evaluation Design Rationale
-
-**C2ST (Classifier Two-Sample Test) — Distribution Fidelity**
-- **Excluded features**: ID columns + target variables
-- **Rationale**: Tests whether synthetic data preserves the *feature distribution* of real data. Including targets would allow trivial discrimination if target distributions differ between real and synthetic (e.g., different class balance), conflating fidelity with target preservation.
-- **Interpretation**: Measures detectability of synthetic data based purely on feature quality.
-
-**MIA (Membership Inference Attack) — Worst-Case Privacy**
-- **Excluded features**: ID columns only (targets INCLUDED)
-- **Rationale**: Simulates a worst-case attacker with access to all non-ID features, including potentially sensitive targets. This conservative evaluation reflects real-world scenarios where adversaries may observe outcome variables.
-- **Interpretation**: Measures membership leakage risk under maximum adversarial knowledge.
-
-**Design principle**: Different exclusion policies reflect different threat models—C2ST evaluates fidelity (features only), while MIA evaluates privacy (all observable data).
-
-### Confidence Intervals & Uncertainty Quantification
-
-- **Bootstrap CIs**: 1,000 resamples per metric (95% intervals)
-- **Small sample handling**: Reduces bootstrap iterations to 500 for n < 50 with warnings for n < 30
-- **Permutation tests**: 10,000 permutations for p-value resolution of 0.0001
-- **Stratification**: Train/test splits stratified by classification target to preserve class balance
-
-### Hyperparameter Justification
-
-**Random Forest** (C2ST, MIA, TSTR):
-- 300 trees (sufficient for convergence; diminishing returns beyond 300)
-- No hyperparameter tuning: RF is robust to defaults for discrimination tasks (Hastie et al., 2009)
-
-**CTGAN**:
-- Standard: 300 epochs (Xu et al., 2019)
-- Quick mode: 100 epochs (3× speedup)
-
-**TabDDPM**:
-- Standard: 1200 iterations (Kotelnikov et al., 2023)
-- Quick mode: 300 iterations (4× speedup)
-- Rationale: Diffusion models require more iterations for convergence (forward + reverse process)
-
-**Gaussian Copula**:
-- No iterative training (closed-form estimation)
-
-### Example Results
-
-**⚠️ DISCLAIMER**: Results below are **illustrative examples** showing the output format. Actual values vary by dataset, synthesizer, and training mode.
-
-**Quick Mode (--quick flag):**
-- Quality: 60-70% (SDMetrics overall)
-- Utility: 0.70-0.85 (RF/LR AUC on real data)
-- **Realism: 0.95-1.0 (POOR - expected in quick mode due to undertrained models)**
-- Privacy: 0.50-0.55 (good)
-
-**Full Mode (no --quick flag):**
-- Quality: 65-85% (SDMetrics overall)
-- Utility: 0.75-0.90 (RF/LR AUC on real data)
-- **Realism: 0.60-0.95 (varies by synthesizer and dataset complexity)**
-- Privacy: 0.50-0.60 (good to moderate)
-
-**Interpretation:**
-- Realism (C2ST effective_auc): **0.5 = perfect**, 1.0 = fully distinguishable
-- Privacy (MIA): **0.5 = no leakage**, 1.0 = total leakage
-- Both metrics: **lower is better**
-
-## Project Structure
-
-```
-synthla-edu-v2/
-├── synthla_edu_v2.py         # Single-file runner (all-in-one)
-├── requirements.txt         # Dependencies
-├── requirements-locked.txt  # Pinned versions
-├── README.md                # This file
-├── data/
-│   └── raw/                 # Place datasets here
-│       ├── oulad/           # OULAD CSVs
-│       └── assistments/     # ASSISTments CSV
-└── runs/                    # Output directory (auto-created)
-```
-
-## How It Works
-
-1. **Load & Preprocess**: Build student-level (OULAD) or student-level aggregated (ASSISTments) tables
-2. **Split**: Train/test split (30% test) with group awareness (ASSISTments) or stratification (OULAD)
-3. **Synthesize**: Fit Gaussian Copula on training data, sample synthetic records
-4. **Evaluate**:
-   - **Quality**: SDMetrics column shape + pair trends
-   - **Realism**: C2ST with Random Forest classifier (single seed)
-   - **Privacy**: MIA with KNN distance features + multi-attacker (LR, RF, XGBoost) worst-case
-
-## Dependencies
-
-**Core:**
-- Python 3.11+
-- PyTorch 2.9.1+ (TabDDPM with RMSNorm support)
-- pandas>=2.0, numpy>=1.24, scikit-learn>=1.3
-- SDV>=1.0 (Gaussian Copula, CTGAN)
-- SDMetrics>=0.14 (Quality reports)
-- Synthcity>=0.2.11 (TabDDPM diffusion model)
-- matplotlib>=3.7 (Visualizations)
-
-**Optional:**
-- xgboost (Multi-attacker MIA)
-
-See [requirements.txt](requirements.txt) for full pinned versions.
+| Component | Standard | Quick |
+|-----------|----------|-------|
+| CTGAN | 300 epochs | 100 epochs |
+| TabDDPM | 1 200 iterations | 300 iterations |
+| Bootstrap | 1 000 resamples | 100 resamples |
+| Random Forest | 300 trees | 300 trees |
 
 ## Repository Structure
 
 ```
-SYNTHLA-EDU V2/
-├── synthla_edu_v2.py          # Main pipeline (single file, ~2150 lines)
-├── requirements.txt            # Python dependencies
-├── requirements-locked.txt     # Pinned versions
-├── README.md                   # This file
+synthla-edu-v2/
+├── synthla_edu_v2.py            # Main pipeline (~2 150 lines)
+├── scripts/
+│   └── generate_all_figures.py  # Publication figure generator (fig2–fig17)
+├── tests/                       # pytest test suite
+│   ├── conftest.py
+│   ├── test_pipeline.py
+│   ├── test_data_loading.py
+│   └── test_synthesizers.py
+├── utils/                       # Optional utility modules
+│   ├── timing.py
+│   ├── effect_size.py
+│   └── logging_config.py
 ├── data/
-│   └── raw/
-│       ├── oulad/             # OULAD CSV files
-│       │   ├── studentInfo.csv
-│       │   ├── studentAssessment.csv
-│       │   ├── studentVle.csv
-│       │   ├── vle.csv
-│       │   ├── assessments.csv
-│       │   ├── courses.csv
-│       │   └── studentRegistration.csv
-│       └── assistments/        # ASSISTments CSV file
-│           └── assistments_2009_2010.csv
-└── runs/
-    ├── oulad/                  # OULAD results
-    │   ├── data.parquet        # Consolidated data (real + 3 synthetic)
-    │   └── results.json        # All metrics + statistical tests
-    ├── assistments/            # ASSISTments results
-    │   ├── data.parquet
-    │   └── results.json
-    └── figures/                # Cross-dataset visualizations
-        └── fig1-10.png         # 10 publication-quality comparison figures
+│   └── raw/                     # Place datasets here (gitignored)
+│       ├── oulad/               # OULAD CSV files (7 tables)
+│       └── assistments/         # ASSISTments CSV
+├── runs_publication/            # Multi-seed experiment results
+│   ├── seed_0/ – seed_4/       # Per-seed results
+│   ├── figures_aggregated/      # 16 publication figures (1 200 DPI)
+│   ├── seed_summary.json
+│   └── seed_summary.csv
+├── Dockerfile                   # Reproducible container
+├── requirements.txt             # Minimum dependencies
+├── requirements-locked.txt      # Pinned versions (exact reproducibility)
+├── DATA_SCHEMA.md               # OULAD & ASSISTments data schemas
+├── DOCKER.md                    # Docker usage guide
+├── QUICKSTART.md                # Quick-start guide
+├── pytest.ini                   # Test configuration
+├── VERSION                      # Semantic version
+└── LICENSE                      # MIT License
 ```
 
-**Total**: 1 Python file + 2 dataset result directories + 1 figures directory
-- `xgboost` (Multi-attacker MIA; enhances privacy evaluation)
+## Dependencies
 
-See [requirements.txt](requirements.txt) for full pinned list.
+**Core:** Python 3.11+ · PyTorch 2.x · pandas · numpy · scikit-learn · SDV · SDMetrics · Synthcity · matplotlib · SHAP
+
+**Optional:** xgboost (multi-attacker MIA)
+
+See [requirements-locked.txt](requirements-locked.txt) for exact pinned versions.
 
 ## Advanced Usage
 
-### Command-Line Options
-
-```bash
+```
 python synthla_edu_v2.py --help
 
-options:
-  --dataset {oulad,assistments}       Dataset to run
-  --raw-dir PATH                      Path to raw CSV folder
-  --out-dir PATH                      Output directory
-  --test-size FLOAT                   Test split (default: 0.3)
-  --seed INT                          Random seed (default: 0)
-  --synthesizer {gaussian_copula,ctgan,tabddpm}  Model (default: gaussian_copula)
-  --run-all                           Run full 2×3 matrix; writes consolidated outputs
-  --quick                             Reduce compute (fewer CTGAN epochs, TabDDPM iterations)
-  --aggregate-assistments             Aggregate ASSISTments to student-level (if not already)
-  --compare DIR                       Generate model comparison chart from results.json in DIR
+  --dataset {oulad,assistments}  Single dataset
+  --raw-dir PATH                 Raw CSV folder
+  --out-dir PATH                 Output directory
+  --seed INT                     Random seed (default: 0)
+  --seeds STR                    Comma-separated seeds for multi-seed runs
+  --synthesizer {gaussian_copula,ctgan,tabddpm}
+  --run-all                      Full 2×3 matrix
+  --quick                        Reduced compute (smoke test only)
+  --test-size FLOAT              Test split (default: 0.3)
 ```
 
 ### Extending the Code
 
-The single-file `synthla_edu_v2.py` is modular:
+**Add a synthesizer:** implement `fit(df)` + `sample(n)` → register in `run_single()`/`run_all()`
 
-**Core Functions:**
-- **Dataset builders**: `build_oulad_student_table()`, `build_assistments_table()`
-- **Splitting**: `group_train_test_split()`, `simple_train_test_split()`
-- **Synthesizers**: `GaussianCopulaSynth`, `CTGANSynth`, `TabDDPMSynth` classes
-- **Evaluations**: 
-  - `sdmetrics_quality()` — Quality report
-  - `tstr_utility()` — TSTR/TRTR with bootstrap CIs
-  - `c2st_effective_auc()` — Realism (real_test vs synthetic_train)
-  - `mia_worst_case_effective_auc()` — Multi-attacker MIA (LR, RF, XGB)
-  - `bootstrap_ci()` — 95% CI from 1,000 resamples
-  - `paired_permutation_test()` — Pairwise statistical testing (2,000 permutations)
+**Add a dataset:** implement `build_<name>_table()` returning `(df, schema)` → register in `build_dataset()`
 
-**To add a new synthesizer:**
-1. Implement a class with `fit(df)` and `sample(n)` methods
-2. Update `run_single()` and `run_all()` to instantiate it
-3. Reference via `--synthesizer <name>`
+## Known Limitations
 
-**To add a new dataset:**
-1. Implement `build_<dataset>_table()` returning `(df, schema)` with `target_cols`
-2. Add to `build_dataset()` dispatcher
-3. Define targets in `run_all()`: set `class_target, reg_target`
-4. Run with `--dataset <name>`
-
-## Known Limitations & Future Work
-
-- **TabDDPM CSV parsing**: Occasional issues on large OULAD splits; use `engine='python'` fallback if needed
-- **TabDDPM stability preprocessing**: The TabDDPM path fills missing values and clips numeric outliers (0.5th–99.5th percentiles) before training to reduce NaNs/instability; this can slightly alter marginal distributions.
-- **Compute**: Runtime varies by hardware; CTGAN/TabDDPM benefit from GPU acceleration. Use `--quick` for faster validation runs.
-  - **Expected runtimes (full mode, CPU):**
-    - OULAD data loading: 2-5 minutes (due to 10M+ row VLE table aggregation)
-    - Gaussian Copula: ~20 seconds training
-    - CTGAN: ~1-2 hours training
-    - TabDDPM: ~45-90 minutes training
-    - Full `--run-all` (2 datasets × 3 synthesizers): **3-6 hours total**
-  - **Progress indicators:** The script prints detailed progress for long-running operations (VLE aggregation, model training, evaluation)
-  - **Quick mode:** Reduces training time to ~30 minutes total but produces unreliable metrics
-- **XGBoost MIA attacker**: Optional; requires `pip install xgboost` for multi-attacker MIA
-- **Extensibility**: Easy to add new datasets, synthesizers, or attackers by following the modular structure
-- **Containerization**: Docker support provided via `Dockerfile` and [DOCKER.md](DOCKER.md). Reproducibility baseline uses pinned dependencies (`requirements-locked.txt`) and CI validation.
-
-For original research pipeline, see [synthla-edu](https://github.com/divineiloh/synthla-edu) (full V1 codebase).
+- **Compute**: Full `--run-all` takes 3–6 hours on CPU. Use `--quick` for validation.
+- **TabDDPM preprocessing**: Clips numeric outliers (0.5th–99.5th percentile) before training.
+- **XGBoost**: Optional dependency; install separately for multi-attacker MIA.
 
 ## Citation
 
 ```bibtex
 @software{synthla_edu_v2,
-  title = {SYNTHLA-EDU V2: Minimal Synthetic Educational Data Benchmark},
+  title  = {SYNTHLA-EDU V2: Synthetic Educational Data Benchmark},
   author = {Divine Iloh},
-  year = {2025},
-  url = {https://github.com/divineiloh/synthla-edu-v2}
+  year   = {2025},
+  url    = {https://github.com/divineiloh/synthla-edu-v2}
 }
 ```
 
 ## License
 
-MIT License
+[MIT License](LICENSE) — Copyright © 2025 Divine Iloh
 
 ## References
 
 - OULAD: [Open University Learning Analytics Dataset](https://analyse.kmi.open.ac.uk/open-dataset)
-- ASSISTments: [ASSISTments 2009-2010 Dataset](https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data)
+- ASSISTments: [ASSISTments 2012–2013 Dataset](https://sites.google.com/site/assistmentsdata/datasets/2012-13-school-data-with-affect)
 - SDV: [Synthetic Data Vault](https://github.com/sdv-dev/SDV)
-- SDMetrics: [SDV Quality Metrics](https://github.com/sdv-dev/SDMetrics)
+- SHAP: [SHapley Additive exPlanations](https://github.com/shap/shap)

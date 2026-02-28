@@ -1,0 +1,606 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "n_seeds_requested": 5,
+  "n_seeds_observed_per_dataset": {
+    "oulad": 5,
+    "assistments": 5
+  },
+  "datasets": {
+    "oulad": {
+      "synthesizers": {
+        "gaussian_copula": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.935652429847667,
+            "std": 0.0019583681042446076,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.9394538458647992,
+            "std": 0.005705199221917803,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.9375531378562331,
+            "std": 0.002814095275217273,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.9309371948726547,
+            "std": 0.0021040158576439627,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.9403852514848346,
+            "std": 0.001946430013192556,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 19.177707137508314,
+            "std": 0.6471071021574403,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 22.191344642734432,
+            "std": 1.8475462687340138,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 20.68452589012137,
+            "std": 1.149587440662815,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.96678865036319,
+            "std": 0.0011789721991755156,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.962030871603043,
+            "std": 0.0008496196267079719,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 8.178257410137181,
+            "std": 0.05421861750383788,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 15.214563854889146,
+            "std": 0.12600429891836779,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.9994851835157398,
+            "std": 0.00045047363246389707,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.5123254189225087,
+            "std": 0.003928644866347177,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 17.756,
+            "std": 3.201395008429918,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.7697249235898863,
+            "std": 0.02000063228567643,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.7074854126146153,
+            "std": 0.014574301810663442,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 4.017566150832565e-12,
+            "std": 8.103375925299101e-12,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 4.4755436901593476e-10,
+            "std": 5.097988909030472e-10,
+            "n_observed": 5
+          }
+        },
+        "ctgan": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.9481974949113113,
+            "std": 0.001677114808051507,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.9530114296818988,
+            "std": 0.0016851712125668865,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.9506044622966051,
+            "std": 0.0015335862220878732,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.9438363966860898,
+            "std": 0.0018893004029320395,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.9526971801191789,
+            "std": 0.001534936041536671,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 13.131446764002181,
+            "std": 0.47716909920207207,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 18.181996577300158,
+            "std": 0.40070866023946383,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 15.65672167065117,
+            "std": 0.4352880056783105,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.96678865036319,
+            "std": 0.0011789721991755156,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.962030871603043,
+            "std": 0.0008496196267079719,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 8.178257410137181,
+            "std": 0.05421861750383788,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 15.214563854889146,
+            "std": 0.12600429891836779,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.961562220996176,
+            "std": 0.010376173008598121,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.5119153455464059,
+            "std": 0.0027303365527199105,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 1649.216,
+            "std": 316.86117311844936,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.8037121422617396,
+            "std": 0.029180840607550853,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.718710752986941,
+            "std": 0.10519653651317576,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 1.3938566458960665e-13,
+            "std": 2.445922745799754e-13,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 1.1005042110611026e-06,
+            "std": 2.460641368522539e-06,
+            "n_observed": 5
+          }
+        },
+        "tabddpm": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.9624239532775947,
+            "std": 0.001120060050392471,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.9515598648964934,
+            "std": 0.006594165391086139,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.956991909087044,
+            "std": 0.0036248773278681045,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.9588018371608287,
+            "std": 0.00114472593509414,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.9660777381696541,
+            "std": 0.0009876723675458217,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 9.948780632742443,
+            "std": 0.2207982286886865,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 18.737180566312556,
+            "std": 0.9624205382553452,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 14.3429805995275,
+            "std": 0.5765623218689222,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.96678865036319,
+            "std": 0.0011789721991755156,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.962030871603043,
+            "std": 0.0008496196267079719,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 8.178257410137181,
+            "std": 0.05421861750383721,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 15.214563854889146,
+            "std": 0.12600429891836779,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.8263529611503933,
+            "std": 0.005674316142600304,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.510617382430782,
+            "std": 0.003892359941180712,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 1916.04,
+            "std": 416.67235251453866,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.8455348707974439,
+            "std": 0.007304848637625197,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.7484190052792443,
+            "std": 0.0627496459784102,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 3.128113998123589e-17,
+            "std": 2.796609967636408e-17,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 1.285522529474933e-09,
+            "std": 2.7909513993456288e-09,
+            "n_observed": 5
+          }
+        }
+      }
+    },
+    "assistments": {
+      "synthesizers": {
+        "gaussian_copula": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.5483020317001134,
+            "std": 0.03661239457382846,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.5159743776993218,
+            "std": 0.11458462263134694,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.5321382046997176,
+            "std": 0.05346132710289356,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.5266000974960872,
+            "std": 0.03696299606654694,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.5709727688149723,
+            "std": 0.036925321152954896,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 0.21769671288254974,
+            "std": 0.007134181805526487,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 0.21279384057681677,
+            "std": 0.00858390722554938,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 0.21524527672968327,
+            "std": 0.004652177884094061,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.8384687620442622,
+            "std": 0.005537072909553277,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.7215958970545795,
+            "std": 0.005247384859517125,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 0.1735763077163245,
+            "std": 0.0021629652984028478,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 0.20157692215186082,
+            "std": 0.0012537752469599609,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.9503281550394449,
+            "std": 0.004861162492530801,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.5179073550584832,
+            "std": 0.01047479337390272,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 1.506,
+            "std": 0.6063249953613986,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.9749999999999999,
+            "std": 0.05590169943749474,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.9749999999999999,
+            "std": 0.05590169943749474,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 0.010409109748751776,
+            "std": 0.023275476983464726,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 0.010409109748751776,
+            "std": 0.023275476983464726,
+            "n_observed": 5
+          }
+        },
+        "ctgan": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.5044141933543626,
+            "std": 0.049639895008579384,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.4908717078494559,
+            "std": 0.12496121463580073,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.4976429506019092,
+            "std": 0.04644529696033198,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.48249451105769164,
+            "std": 0.04940045737356233,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.5263765224205896,
+            "std": 0.05043055455996844,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 0.23066721291220155,
+            "std": 0.03941556478151758,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 0.2025902578264046,
+            "std": 0.00428231253985052,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 0.21662873536930308,
+            "std": 0.021766750592273728,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.8384687620442622,
+            "std": 0.005537072909553277,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.7215958970545795,
+            "std": 0.005247384859517125,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 0.1735763077163245,
+            "std": 0.0021629652984028478,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 0.20157692215186082,
+            "std": 0.0012537752469599609,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.9594925283321634,
+            "std": 0.007547146672606417,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.5161585547239537,
+            "std": 0.008499668165940506,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 158.498,
+            "std": 32.203013368316945,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.9499999999999998,
+            "std": 0.06846531968814576,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.9499999999999998,
+            "std": 0.06846531968814576,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 0.02081821949750355,
+            "std": 0.028506521064691398,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 0.02081821949750355,
+            "std": 0.028506521064691398,
+            "n_observed": 5
+          }
+        },
+        "tabddpm": {
+          "tstr_cls_rf_auc": {
+            "mean": 0.678461665754552,
+            "std": 0.013892175713376524,
+            "n_observed": 5
+          },
+          "tstr_cls_lr_auc": {
+            "mean": 0.7216161586404286,
+            "std": 0.005867852445204409,
+            "n_observed": 5
+          },
+          "tstr_cls_mean_auc": {
+            "mean": 0.7000389121974903,
+            "std": 0.007754045772790155,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_low": {
+            "mean": 0.6573877320127693,
+            "std": 0.014027858412389117,
+            "n_observed": 5
+          },
+          "tstr_cls_rf_auc_ci_high": {
+            "mean": 0.6982904103589959,
+            "std": 0.01415600518092416,
+            "n_observed": 5
+          },
+          "tstr_reg_rf_mae": {
+            "mean": 0.19846583407881557,
+            "std": 0.004487497320960451,
+            "n_observed": 5
+          },
+          "tstr_reg_ridge_mae": {
+            "mean": 0.2008482754974322,
+            "std": 0.0016047644432623147,
+            "n_observed": 5
+          },
+          "tstr_reg_mean_mae": {
+            "mean": 0.19965705478812387,
+            "std": 0.0029543338101696054,
+            "n_observed": 5
+          },
+          "trtr_cls_rf_auc": {
+            "mean": 0.8384687620442622,
+            "std": 0.005537072909553277,
+            "n_observed": 5
+          },
+          "trtr_cls_lr_auc": {
+            "mean": 0.7215958970545795,
+            "std": 0.005247384859517125,
+            "n_observed": 5
+          },
+          "trtr_reg_rf_mae": {
+            "mean": 0.1735763077163245,
+            "std": 0.0021629652984028564,
+            "n_observed": 5
+          },
+          "trtr_reg_ridge_mae": {
+            "mean": 0.20157692215186082,
+            "std": 0.0012537752469599609,
+            "n_observed": 5
+          },
+          "c2st_effective_auc": {
+            "mean": 0.6710190059647554,
+            "std": 0.013745447457572437,
+            "n_observed": 5
+          },
+          "mia_worst_case_effective_auc": {
+            "mean": 0.5266991223701276,
+            "std": 0.0065814976289636585,
+            "n_observed": 5
+          },
+          "timing_total_seconds": {
+            "mean": 358.366,
+            "std": 90.80195994580733,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_cls": {
+            "mean": 0.9999999999999999,
+            "std": 0.0,
+            "n_observed": 5
+          },
+          "shap_spearman_rho_reg": {
+            "mean": 0.9999999999999999,
+            "std": 0.0,
+            "n_observed": 5
+          },
+          "shap_p_value_cls": {
+            "mean": 1.4042654220543672e-24,
+            "std": 0.0,
+            "n_observed": 5
+          },
+          "shap_p_value_reg": {
+            "mean": 1.4042654220543672e-24,
+            "std": 0.0,
+            "n_observed": 5
+          }
+        }
+      }
+    }
+  }
+}
