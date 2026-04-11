@@ -195,10 +195,19 @@ def _invert_score(val):
     return max(0.0, (1.0 - (val - 0.5) / 0.5)) * 100
 
 
-def _utility_score(synth_val, real_val, lower_better=False):
-    """Utility metric → 0-100 score (100 = matches real baseline)."""
+def _utility_score(synth_val, real_val, lower_better=False, chance=None):
+    """Utility metric → 0-100 score (100 = matches real baseline).
+
+    For classification AUC, pass *chance=0.5* to floor at the random-guess
+    baseline so that a synthesiser producing chance-level AUC maps to 0 %.
+    """
     if lower_better:
         return min(100.0, (real_val / synth_val) * 100) if synth_val > 0 else 100.0
+    if chance is not None:
+        denom = real_val - chance
+        if denom <= 0:
+            return 100.0
+        return max(0.0, min(100.0, (synth_val - chance) / denom * 100))
     return min(100.0, (synth_val / real_val) * 100) if real_val > 0 else 100.0
 
 
@@ -594,7 +603,7 @@ def plot_performance_heatmap(data, dataset, fig_num):
             "classification"]["trtr_rf_auc"] for s in SEEDS])
         tstr = np.mean([data[s][dataset]["synthesizers"][syn]["utility"][
             "classification"]["rf_auc"] for s in SEEDS])
-        matrix[i, 3] = _utility_score(tstr, trtr)
+        matrix[i, 3] = _utility_score(tstr, trtr, chance=0.5)
 
         trtr = np.mean([data[s][dataset]["synthesizers"][syn]["utility"][
             "regression"]["trtr_rf_mae"] for s in SEEDS])

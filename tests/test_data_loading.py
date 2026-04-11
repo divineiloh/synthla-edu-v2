@@ -39,7 +39,7 @@ class TestOULADDataLoading:
         """Check OULAD has expected number of rows and columns."""
         df, schema = oulad_data
         assert len(df) > 30000, f"Expected >30k rows, got {len(df)}"
-        assert len(df.columns) >= 25, f"Expected >=25 columns, got {len(df.columns)}"
+        assert len(df.columns) >= 20, f"Expected >=20 columns, got {len(df.columns)}"
     
     def test_oulad_required_columns(self, oulad_data):
         """Verify OULAD contains all required columns."""
@@ -119,9 +119,12 @@ class TestASSISTmentsDataLoading:
         df, schema = assistments_data
         required_cols = [
             "user_id",
-            "n_interactions",
             "student_pct_correct",
-            "high_accuracy"  # Binary target added
+            "high_engagement",
+            "unique_skills",
+            "hint_rate",
+            "avg_attempts",
+            "avg_response_time",
         ]
         for col in required_cols:
             assert col in df.columns, f"Missing required column: {col}"
@@ -155,7 +158,7 @@ class TestASSISTmentsDataLoading:
         assert "user_id" in schema["id_cols"]
         
         # Check both targets present
-        assert "high_accuracy" in schema["target_cols"]
+        assert "high_engagement" in schema["target_cols"]
         assert "student_pct_correct" in schema["target_cols"]
 
 

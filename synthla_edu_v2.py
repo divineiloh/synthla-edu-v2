@@ -1901,6 +1901,7 @@ def create_cross_dataset_visualizations(
             results = all_results[dataset]
             synths = results['synthesizers']
             baseline_mae = synths[synth_names[0]]['utility']['regression']['trtr_ridge_mae']
+            baseline_cls_auc = synths[synth_names[0]]['utility']['classification']['trtr_rf_auc']
             
             for s in synth_names:
                 # Format label: Gaussian Copula on two lines
@@ -1910,11 +1911,15 @@ def create_cross_dataset_visualizations(
                     label = s.replace('_', ' ').title()
                 row_labels.append(label)
                 
+                tstr_cls_auc = synths[s]['utility']['classification']['rf_auc']
+                cls_denom = baseline_cls_auc - 0.5
+                cls_score = max(0.0, min(100.0, (tstr_cls_auc - 0.5) / cls_denom * 100)) if cls_denom > 0 else 100.0
+                
                 row = [
                     synths[s]['sdmetrics']['overall_score'] * 100,
                     score_from_effective_auc(synths[s]['c2st']['effective_auc']),
                     score_from_effective_auc(synths[s]['mia']['worst_case_effective_auc']),
-                    synths[s]['utility']['classification']['rf_auc'] * 100,
+                    cls_score,
                     score_from_mae(synths[s]['utility']['regression']['ridge_mae'], baseline_mae)
                 ]
                 metrics_data.append(row)
